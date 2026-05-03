@@ -1,5 +1,5 @@
 # tags.py
 
 tag_list = {
-    "dragon": "images/squidward-explosion.gif"
+    "squid": "images/squidward-explosion.gif"
 }
