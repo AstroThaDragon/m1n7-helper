@@ -1,0 +1,12 @@
+# Ignore the file where I keep my secret token locally
+.env
+token.txt
+
+# Ignore Python's "background" files (these just clutter your GitHub)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ignore system files
+.DS_Store
+Thumbs.db

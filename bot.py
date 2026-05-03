@@ -1,0 +1,483 @@
+import discord
+from discord.ext import commands, tasks
+import os
+import random
+from tags import tag_list
+from dotenv import load_dotenv
+from discord import app_commands
+import aiohttp
+import asyncio
+import re
+from datetime import datetime, time, timezone, timedelta
+
+load_dotenv()
+
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True 
+
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+# --- CONFIGURATION ---
+DRAGON_IMAGE_URL = "https://media.discordapp.net/attachments/916221943101947914/1497326085099094209/IMG_20191102_191207_871.png?ex=69f50615&is=69f3b495&hm=eff466c1a7fa9296a8e2de3ed78ade6aa1c5d72dd7f81e60d6957f0891c29558&=&format=webp&quality=lossless"
+bump_timer_active = False
+
+# Anti-double message protection
+recent_joins = set()
+recent_leaves = set()
+
+# --- STATUS ROTATOR SETUP ---
+status_list = [
+    "Watching over the Lair",
+    "Searching for dragons 🐉", 
+    "Processing reports...",
+    "Scanning the cosmos 🌌",
+    "Powered by stardust!",
+    "Harvesting moon rocks",
+    "Beep boop bop",
+    "Playing FNF!",
+    "Watching SpongeBob"
+]
+
+@tasks.loop(minutes=15)
+async def change_status():
+    new_status = random.choice(status_list)
+    await bot.change_presence(activity=discord.CustomActivity(name=new_status))
+
+# --- STARGAZING ALERTS SETUP ---
+# Updated to UTC-4 for EDT (Daylight Saving Time)
+edt = timezone(timedelta(hours=-4))
+scheduled_time = time(hour=12, minute=0, tzinfo=edt)
+
+@tasks.loop(time=scheduled_time)
+async def stargazing_alert():
+    channel_id = 593416487499333653 
+    channel = bot.get_channel(channel_id)
+    
+    if channel:
+        url = "https://api.spaceflightnewsapi.net/v4/articles/?limit=1"
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=10) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        article = data['results'][0]
+                        title = article['title']
+                        summary = article['summary']
+                        img_url = article['image_url']
+                        site = article['news_site']
+                        article_url = article['url'] # New: get the article link
+                        
+                        if len(summary) > 200:
+                            summary = summary[:197] + "..."
+
+                        embed = discord.Embed(
+                            title="🔭 Daily Stargazing & Space Update",
+                            # Added the clickable link here
+                            description=f"**{title}**\n\n{summary}\n\n🔗 [Read Full Article]({article_url})",
+                            color=discord.Color.gold()
+                        )
+                        embed.set_image(url=img_url)
+                        embed.set_footer(text=f"Source: {site} | Helping the Lair look up! ✨")
+                        
+                        await channel.send(embed=embed)
+        except Exception as e:
+            print(f"Error in stargazing_alert loop: {e}")
+
+# --- EVENTS ---
+@bot.event
+async def on_ready():
+    print(f'Logged in as {bot.user.name}')
+    await bot.tree.sync() 
+    
+    if not change_status.is_running():
+        change_status.start()
+        
+    if not stargazing_alert.is_running():
+        stargazing_alert.start()
+        
+    print("Status rotator and Stargazing alerts are now active!")
+
+@bot.event
+async def on_message(message):
+    global bump_timer_active
+
+    # --- DISBOARD BUMP REMINDER LOGIC ---
+    if message.author.id == 302050872383242240:
+        # 2-second delay ensures the embed is fully loaded before the bot reads it
+        await asyncio.sleep(2)
+        
+        if message.embeds and "Bump done!" in (message.embeds[0].description or ""):
+            
+            # Prevents double-firing if Discord triggers the message update twice
+            if bump_timer_active:
+                return
+
+            bump_timer_active = True
+
+            # Extract the user mention from Disboard's description or interaction
+            description = message.embeds[0].description
+            user_mention = ""
+
+            # Check for a mention in the description (Standard: <@123...>)
+            if "<@" in description:
+                match = re.search(r"<@!?(\+?[0-9]+)>", description)
+                if match:
+                    user_mention = match.group(0)
+            
+            # If the mention wasn't found in text, try to get the user who triggered the command
+            if not user_mention and message.interaction:
+                user_mention = message.interaction.user.mention
+
+            # Fallback if everything else fails
+            if not user_mention:
+                user_mention = "there"
+
+            thanks_text = (
+                f"Thank you so much for bumping our server, {user_mention}! It helps us a ton!! <:CoolEevee:1109771250634592306> 💜\n"
+                f"You may come back in two hours to do it again once I remind you! <a:DancingEevee:1109781719315398766>"
+            )
+            await message.channel.send(thanks_text)
+            
+            # Wait 2 hours
+            await asyncio.sleep(7200)
+            
+            bump_role_id = "1295212860720418887"
+            
+            reminder_embed = discord.Embed(
+                description=(
+                    f"*Sniffsniff..*\n\n"
+                    f"*Sniff!!*\n"
+                    f"It's time to bump once again! Please bump our server by typing /bump! "
+                    f"It helps us a lot by gaining more members! <a:RedHearts:1109768412382642266> <:AstroHeart:927518108745343026> <a:PurpleHearts:1109768355390431323>"
+                ),
+                color=discord.Color.from_rgb(114, 0, 225)
+            )
+            
+            # Mentions the specific role using <@&ID>
+            await message.channel.send(content=f"<@&{bump_role_id}>", embed=reminder_embed)
+            
+            bump_timer_active = False
+
+    # Required to keep other commands working
+    await bot.process_commands(message)
+
+@bot.event
+async def on_member_join(member):
+    # Prevent double-welcome
+    if member.id in recent_joins:
+        return
+    recent_joins.add(member.id)
+
+    channel = bot.get_channel(1117377155496673330)
+    if channel:
+        count = member.guild.member_count
+        
+        # --- ORDINAL LOGIC (1st, 2nd, 3rd, etc.) ---
+        if 11 <= (count % 100) <= 13:
+            suffix = 'th'
+        else:
+            suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(count % 10, 'th')
+        ordinal_count = f"{count}{suffix}"
+        
+        content_text = f"Welcome to The Cosmic Lair, {member.mention}!! 💜"
+        
+        embed = discord.Embed(
+            title="Hey there! Welcome to The Cosmic Lair! <a:PurpleHearts:1109768355390431323> <a:RedHearts:1109768412382642266>",
+            description=(
+                f"Before anything, please verify yourself over at <#1296962529989361685> "
+                f"for full access to our server! Afterwards, please head over to <#593389789558865931> "
+                f"to read our rules if you haven't already, then maybe check out <#927536823746580570> "
+                f"for special roles while you're at it!\n\n"
+                f"Also, please be patient while our server grows; it may be a bit quiet at times!\n\n"
+                f"We hope you enjoy your stay at The Cosmic Lair! Feel free to invite friends, we won't bite!"
+            ),
+            color=discord.Color.from_rgb(114, 0, 225)
+        )
+        embed.set_author(name=f"{member.name}", icon_url=member.display_avatar.url)
+        embed.set_thumbnail(url=DRAGON_IMAGE_URL)
+        
+        # Moved to footer
+        embed.set_footer(text=f"You are our {ordinal_count} member! Congrats!")
+        
+        await channel.send(content=content_text, embed=embed)
+
+    await asyncio.sleep(10)
+    recent_joins.discard(member.id)
+
+@bot.event
+async def on_member_remove(member):
+    # Prevent double-leave message
+    if member.id in recent_leaves:
+        return
+    recent_leaves.add(member.id)
+
+    channel = bot.get_channel(1117377155496673330)
+    if channel:
+        count = member.guild.member_count
+        content_text = f"Sorry to see you go, {member.name}!"
+        
+        embed = discord.Embed(
+            title="We're sorry to see you go! :c",
+            description=(
+                f"It looks like {member.mention} has left the server. "
+                f"We hope to see you again soon, and please be safe!"
+            ),
+            color=discord.Color.from_rgb(114, 0, 225)
+        )
+        embed.set_author(name=f"{member.name}", icon_url=member.display_avatar.url)
+        
+        # Moved to footer
+        embed.set_footer(text=f"We now have {count} members.")
+        
+        await channel.send(content=content_text, embed=embed)
+
+    await asyncio.sleep(10)
+    recent_leaves.discard(member.id)
+
+@bot.event
+async def on_member_update(before, after):
+    if before.premium_since is None and after.premium_since is not None:
+        channel = bot.get_channel(1117417170545160222)
+        if channel:
+            boost_count = after.guild.premium_subscription_count
+            if boost_count < 2: next_level = 2 - boost_count
+            elif boost_count < 7: next_level = 7 - boost_count
+            else: next_level = 14 - boost_count
+
+            content_text = f"Thank you, {after.mention}!"
+            
+            embed = discord.Embed(
+                title="Wooo! We have a new booster! 💜",
+                description=(
+                    f"Thank you so much, {after.name}!! You have received our supporter role! "
+                    f"We are now at {boost_count} boosts! 🐉❤️"
+                ),
+                color=discord.Color.from_rgb(114, 0, 225)
+            )
+            embed.set_author(name=f"{after.name}", icon_url=after.display_avatar.url)
+            
+            # Moved to footer
+            embed.set_footer(text=f"We only need {next_level} boosts till our next level!")
+            
+            await channel.send(content=content_text, embed=embed)
+
+@bot.event
+async def on_message(message):
+    if message.author == bot.user:
+        return
+
+    if message.content.startswith("-"):
+        tag_name = message.content[1:].lower().strip()
+
+        if tag_name in tag_list:
+            content = tag_list[tag_name]
+
+            # Check if the text in the dictionary is a path to an image
+            if content.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+                if os.path.exists(content):
+                    # Open the file from the 'images/' folder and upload it
+                    with open(content, 'rb') as f:
+                        picture = discord.File(f)
+                        await message.channel.send(file=picture)
+                else:
+                    await message.channel.send(f"⚠️ I couldn't find `{content}`. Check if it's in the images folder!")
+            else:
+                # Just send the regular text response
+                await message.channel.send(content)
+            return
+
+    await bot.process_commands(message)
+
+# --- FUN COMMANDS ---
+@bot.tree.command(name="jokes", description="Get a random joke to brighten your day!")
+async def jokes(interaction: discord.Interaction):
+    joke_list = [
+        "Why don't scientists trust atoms? Because they make up everything!",
+        "What do you call a fake noodle? An impasta!",
+        "Why did the dragon get hired? He was really good at 'firing' people! 🐉",
+        "How does a penguin build its house? Igloos it together!",
+        "What do you call a skeleton who won't work? Lazy bones!",
+        "Why are dragons such good storytellers? Because they always have a long tail!",
+        "What is an astronaut's favorite key on the keyboard? The spacebar!",
+        "I'm on a seafood diet. I see food, I eat it!",
+        "What do you call a well-balanced horse? Stable!",
+        "How do you make an eggroll? Push it!",
+        "What do you call a pile of cats? A meow-ntain!",
+        "Why don't they play poker in the jungle? Too many cheetahs.",
+        "What kind of tea is hard to swallow? Realitea.",
+        "RIP to boiling water. You will be mist.",
+        "Knock-knock! - Who's there? - Boo. - Boo who? - Why are you crying??",
+        "Knock-knock! - Who's there? - Spell - Spell who? - W-H-O.",
+        "Why did the scarecrow win an award? Because he was outstanding in his field!"
+    ]
+    
+    random_joke = random.choice(joke_list)
+    await interaction.response.send_message(f"**Here's a goofy joke for ya!:**\n{random_joke}")
+
+# --- COSMIC COMMANDS ---
+
+@bot.tree.command(name="nasa", description="View NASA's Astronomy Picture of the Day!")
+async def nasa(interaction: discord.Interaction):
+    api_key = os.getenv('NASA_API_KEY', 'DEMO_KEY')
+    url = f"https://api.nasa.gov/planetary/apod?api_key={api_key}"
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status == 200:
+                data = await response.json()
+                title = data.get('title', 'Space Discovery')
+                desc = data.get('explanation', '')
+                img_url = data.get('url', '')
+                media_type = data.get('media_type', '') 
+                
+                # Standard APOD link
+                page_url = "https://apod.nasa.gov/apod/astropix.html"
+                
+                if len(desc) > 300:
+                    desc = desc[:297] + "..."
+
+                # Added link to description
+                embed = discord.Embed(
+                    title=f"🚀 {title}", 
+                    description=f"{desc}\n\n🔗 [View on NASA APOD]({page_url})", 
+                    color=discord.Color.blue()
+                )
+                
+                if media_type == 'video':
+                    embed.description += f"\n\n**Watch the video here:**\n{img_url}"
+                else:
+                    embed.set_image(url=img_url)
+                
+                embed.set_footer(text="Provided by NASA APOD API")
+                await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="bing", description="View today's Bing wallpaper!")
+async def bing(interaction: discord.Interaction):
+    url = "https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=en-US"
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status == 200:
+                data = await response.json()
+                img_path = data['images'][0]['url']
+                img_url = f"https://www.bing.com{img_path}"
+                copyright_info = data['images'][0]['copyright']
+                copyright_link = data['images'][0]['copyrightlink']
+
+                embed = discord.Embed(
+                    title="🌍 Today's Bing Wallpaper", 
+                    description=f"{copyright_info}\n\n🔗 [Explore Location]({copyright_link})", 
+                    color=discord.Color.green()
+                )
+                embed.set_image(url=img_url)
+                await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="moon", description="Check the current moon phase!")
+async def moon(interaction: discord.Interaction):
+    url = "https://wttr.in/?format=%m" 
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status == 200:
+                phase_emoji = await response.text()
+                await interaction.response.send_message(f"The current moon phase is: **{phase_emoji}**")
+            else:
+                await interaction.response.send_message("Can't see the moon right now! ☁️")
+
+@bot.tree.command(name="weather", description="Get the current weather for a specific city!")
+async def weather(interaction: discord.Interaction, city: str):
+    url = f"https://wttr.in/{city}?format=3"
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status == 200:
+                weather_report = await response.text()
+                await interaction.response.send_message(f"**Current Weather:**\n{weather_report}")
+            else:
+                await interaction.response.send_message(f"I couldn't find the weather for '{city}'. Is that a real place in the cosmos?")
+
+@bot.tree.command(name="iss", description="Track the International Space Station's current location!")
+async def iss(interaction: discord.Interaction):
+    # This tells Discord to wait up to 15 minutes for the bot to respond
+    await interaction.response.defer()
+    
+    url = "https://api.wheretheiss.at/v1/satellites/25544"
+    
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    lat = data.get('latitude')
+                    lon = data.get('longitude')
+                    velocity = data.get('velocity')
+                    
+                    maps_url = f"https://www.google.com/maps?q={lat},{lon}&t=k"
+                    
+                    embed = discord.Embed(
+                        title="🛰️ ISS Current Location",
+                        description=f"The International Space Station is currently flying over:\n\n🔗 [View on Live Map]({maps_url})",
+                        color=discord.Color.dark_blue()
+                    )
+                    # Coordinates and velocity rounded for a cleaner look
+                    embed.add_field(name="Latitude", value=f"{lat:.4f}", inline=True)
+                    embed.add_field(name="Longitude", value=f"{lon:.4f}", inline=True)
+                    embed.add_field(name="Velocity", value=f"{velocity:.2f} km/h", inline=False)
+                    embed.set_footer(text="Data provided by 'Where the ISS at?'")
+                    
+                    # Since we used defer(), we MUST use followup.send here
+                    await interaction.followup.send(embed=embed)
+                else:
+                    await interaction.followup.send("I've lost contact with the satellite! 📡")
+        except Exception as e:
+            print(f"ISS Command Error: {e}")
+            await interaction.followup.send("The tracking station is currently offline. Try again later!")
+
+@bot.tree.command(name="spacefact", description="Get a random, mind-blowing space fact!")
+async def spacefact(interaction: discord.Interaction):
+    url = "https://uselessfacts.jsph.pl/api/v2/facts/random"
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status == 200:
+                data = await response.json()
+                fact = data.get('text')
+                
+                embed = discord.Embed(
+                    title="🌌 Cosmic Trivia",
+                    description=fact,
+                    color=discord.Color.purple()
+                )
+                await interaction.response.send_message(embed=embed)
+            else:
+                await interaction.response.send_message("My star-charts are a bit blurry right now. Try again soon!")
+
+# --- COMMANDS ---
+@bot.command()
+async def qr(ctx, *, reason):
+    staff_channel = bot.get_channel(1352834838478061608) 
+    if staff_channel:
+        jump_url = f"https://discord.com/channels/{ctx.guild.id}/{ctx.channel.id}/{ctx.message.id}"
+        report_msg = (
+            f"⚠️ **New Quick Report!**\n"
+            f"**User:** {ctx.author.mention} used `!qr` in {ctx.channel.mention}\n"
+            f"**Reason:** {reason}\n"
+            f"🔗 [Click here for the message that was reported.]({jump_url})"
+        )
+        await staff_channel.send(report_msg)
+        await ctx.message.delete()
+        await ctx.author.send("Your report has been sent to the staff. Thank you for helping The Cosmic Lair stay positive! 🌌💜")
+    else:
+        print("Error: Staff channel not found.")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def resetbump(ctx):
+    global bump_timer_active
+    bump_timer_active = False
+    await ctx.send("Bump timer safety has been reset! 🔄")
+
+token = os.getenv('DISCORD_TOKEN')
+bot.run(token)
