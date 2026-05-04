@@ -11,7 +11,6 @@ from discord import app_commands
 import aiohttp
 import asyncio
 import re
-import yt_dlp
 from datetime import datetime, time, timezone, timedelta
 
 load_dotenv()
@@ -50,7 +49,6 @@ async def change_status():
     await bot.change_presence(activity=discord.CustomActivity(name=new_status))
 
 # --- STARGAZING ALERTS SETUP ---
-# Updated to UTC-4 for EDT (Daylight Saving Time)
 edt = timezone(timedelta(hours=-4))
 scheduled_time = time(hour=12, minute=0, tzinfo=edt)
 
@@ -72,14 +70,13 @@ async def stargazing_alert():
                         summary = article['summary']
                         img_url = article['image_url']
                         site = article['news_site']
-                        article_url = article['url'] # New: get the article link
+                        article_url = article['url']
                         
                         if len(summary) > 200:
                             summary = summary[:197] + "..."
 
                         embed = discord.Embed(
                             title="🔭 Daily Stargazing & Space Update",
-                            # Added the clickable link here
                             description=f"**{title}**\n\n{summary}\n\n🔗 [Read Full Article]({article_url})",
                             color=discord.Color.gold()
                         )
@@ -95,13 +92,11 @@ async def stargazing_alert():
 async def on_ready():
     print(f'Logged in as {bot.user.name}')
     
-    # Sync slash commands
     try:
         await bot.tree.sync()
     except Exception as e:
         print(f"Error syncing tree: {e}")
     
-    # Start loops if they aren't running
     if not change_status.is_running():
         change_status.start()
         
@@ -109,13 +104,10 @@ async def on_ready():
         stargazing_alert.start()
         
     print("Status rotator and Stargazing alerts are now active!")
-    print("Music system (PyNaCl & yt-dlp) is ready to rock! 🎵")
 
 @bot.event
 async def on_message(message):
     global bump_timer_active
-
-    # Ignore messages from the bot itself
     if message.author == bot.user:
         return
 
@@ -124,8 +116,6 @@ async def on_message(message):
         tag_name = message.content[1:].lower().strip()
         if tag_name in tag_list:
             content = tag_list[tag_name]
-            
-            # Check if it's a local file (contains "images/")
             if "images/" in content.lower():
                 if "\n" in content:
                     parts = content.rsplit("\n", 1)
@@ -135,13 +125,11 @@ async def on_message(message):
                     text_caption = None
                     file_path = content.strip()
 
-                # Try to send file, fallback to text if missing
                 if os.path.exists(file_path):
                     with open(file_path, 'rb') as f:
                         await message.channel.send(content=text_caption, file=discord.File(f))
                     return 
             
-            # Send as plain text (Links, simple text, or missing files)
             await message.channel.send(content)
             return 
 
@@ -187,12 +175,10 @@ async def on_message(message):
             await message.channel.send(content=f"<@&{bump_role_id}>", embed=reminder_embed)
             bump_timer_active = False
 
-    # --- 3. PROCESS COMMANDS ---
     await bot.process_commands(message)
 
 @bot.event
 async def on_member_join(member):
-    # Prevent double-welcome
     if member.id in recent_joins:
         return
     recent_joins.add(member.id)
@@ -200,8 +186,6 @@ async def on_member_join(member):
     channel = bot.get_channel(1117377155496673330)
     if channel:
         count = member.guild.member_count
-        
-        # --- ORDINAL LOGIC (1st, 2nd, 3rd, etc.) ---
         if 11 <= (count % 100) <= 13:
             suffix = 'th'
         else:
@@ -224,8 +208,6 @@ async def on_member_join(member):
         )
         embed.set_author(name=f"{member.name}", icon_url=member.display_avatar.url)
         embed.set_thumbnail(url=DRAGON_IMAGE_URL)
-        
-        # Moved to footer
         embed.set_footer(text=f"You are our {ordinal_count} member! Congrats!")
         
         await channel.send(content=content_text, embed=embed)
@@ -235,7 +217,6 @@ async def on_member_join(member):
 
 @bot.event
 async def on_member_remove(member):
-    # Prevent double-leave message
     if member.id in recent_leaves:
         return
     recent_leaves.add(member.id)
@@ -254,8 +235,6 @@ async def on_member_remove(member):
             color=discord.Color.from_rgb(114, 0, 225)
         )
         embed.set_author(name=f"{member.name}", icon_url=member.display_avatar.url)
-        
-        # Moved to footer
         embed.set_footer(text=f"We now have {count} members.")
         
         await channel.send(content=content_text, embed=embed)
@@ -284,8 +263,6 @@ async def on_member_update(before, after):
                 color=discord.Color.from_rgb(114, 0, 225)
             )
             embed.set_author(name=f"{after.name}", icon_url=after.display_avatar.url)
-            
-            # Moved to footer
             embed.set_footer(text=f"We only need {next_level} boosts till our next level!")
             
             await channel.send(content=content_text, embed=embed)
@@ -332,13 +309,11 @@ async def nasa(interaction: discord.Interaction):
                 img_url = data.get('url', '')
                 media_type = data.get('media_type', '') 
                 
-                # Standard APOD link
                 page_url = "https://apod.nasa.gov/apod/astropix.html"
                 
                 if len(desc) > 300:
                     desc = desc[:297] + "..."
 
-                # Added link to description
                 embed = discord.Embed(
                     title=f"🚀 {title}", 
                     description=f"{desc}\n\n🔗 [View on NASA APOD]({page_url})", 
@@ -400,7 +375,6 @@ async def weather(interaction: discord.Interaction, city: str):
 
 @bot.tree.command(name="iss", description="Track the International Space Station's current location!")
 async def iss(interaction: discord.Interaction):
-    # This tells Discord to wait up to 15 minutes for the bot to respond
     await interaction.response.defer()
     
     url = "https://api.wheretheiss.at/v1/satellites/25544"
@@ -421,13 +395,11 @@ async def iss(interaction: discord.Interaction):
                         description=f"The International Space Station is currently flying over:\n\n🔗 [View on Live Map]({maps_url})",
                         color=discord.Color.dark_blue()
                     )
-                    # Coordinates and velocity rounded for a cleaner look
                     embed.add_field(name="Latitude", value=f"{lat:.4f}", inline=True)
                     embed.add_field(name="Longitude", value=f"{lon:.4f}", inline=True)
                     embed.add_field(name="Velocity", value=f"{velocity:.2f} km/h", inline=False)
                     embed.set_footer(text="Data provided by 'Where the ISS at?'")
                     
-                    # Since we used defer(), we MUST use followup.send here
                     await interaction.followup.send(embed=embed)
                 else:
                     await interaction.followup.send("I've lost contact with the satellite! 📡")
@@ -479,14 +451,9 @@ async def resetbump(ctx):
     bump_timer_active = False
     await ctx.send("Bump timer safety has been reset! 🔄")
 
-async def load_extensions():
-    await bot.load_extension('music')
-
 async def main():
     async with bot:
         token = os.getenv('DISCORD_TOKEN') 
-        
-        await load_extensions()
         await bot.start(token)
 
 if __name__ == "__main__":
