@@ -18,7 +18,7 @@ tag_list = {
     "bite": "*Nom*\nhttps://media.tenor.com/m/OfK5pY2Qu6oAAAAd/fox-bite.gif",
     "blu": "The reason it's named that? For someone I know. Yes, this tag is for them\nhttps://media.tenor.com/xDn7MANyP6kAAAAM/oh-yay-im-a-sacrifice-sacrifice.gif",
     "boykisser": "Are *you* a boykisser?\nhttps://tenor.com/nzJ6JX0kQch.gif",
-    "🧱\nhttps://tenor.com/kIwHdKlRQif.gif",
+    "🧱": "https://tenor.com/kIwHdKlRQif.gif",
     "dead": "Feelin' like this, bru\nhttps://media.tenor.com/Rnmhy4e3iZ0AAAAM/cartman-eric-cartman.gif",
     "deadchat": "This will TOTALLY work. Trust me\nhttps://media.tenor.com/bgfw0qY4qtkAAAAM/dead-group-chat-waiting.gif",
     "deletethis": "Just delete it.\nimages/deletethis.jpg",
