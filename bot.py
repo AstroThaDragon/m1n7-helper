@@ -102,6 +102,20 @@ async def on_ready():
         
     print("Status rotator and Stargazing alerts are now active!")
 
+# --- EVENTS ---
+@bot.event
+async def on_ready():
+    print(f'Logged in as {bot.user.name}')
+    await bot.tree.sync() 
+    
+    if not change_status.is_running():
+        change_status.start()
+        
+    if not stargazing_alert.is_running():
+        stargazing_alert.start()
+        
+    print("Status rotator and Stargazing alerts are now active!")
+
 @bot.event
 async def on_message(message):
     global bump_timer_active
@@ -116,9 +130,8 @@ async def on_message(message):
         if tag_name in tag_list:
             content = tag_list[tag_name]
             
-            # Check if "images/" is mentioned anywhere in the tag content
+            # Check if it's a local file (contains "images/")
             if "images/" in content.lower():
-                # Separate the text from the file path using the last newline
                 if "\n" in content:
                     parts = content.rsplit("\n", 1)
                     text_caption = parts[0].strip()
@@ -127,16 +140,13 @@ async def on_message(message):
                     text_caption = None
                     file_path = content.strip()
 
-                # ONLY try to send as a file if the path actually exists on Railway
+                # Try to send file, fallback to text if missing
                 if os.path.exists(file_path):
                     with open(file_path, 'rb') as f:
                         await message.channel.send(content=text_caption, file=discord.File(f))
-                    return # Exit after successful file send
-                
-                # If it doesn't exist, we don't send an error anymore. 
-                # We just fall through to the plain text send below.
-
-            # Fallback: Sends links, plain text, or tags with missing files
+                    return 
+            
+            # Send as plain text (Links, simple text, or missing files)
             await message.channel.send(content)
             return 
 
@@ -284,33 +294,6 @@ async def on_member_update(before, after):
             embed.set_footer(text=f"We only need {next_level} boosts till our next level!")
             
             await channel.send(content=content_text, embed=embed)
-
-@bot.event
-async def on_message(message):
-    if message.author == bot.user:
-        return
-
-    if message.content.startswith("-"):
-        tag_name = message.content[1:].lower().strip()
-
-        if tag_name in tag_list:
-            content = tag_list[tag_name]
-
-            # Check if the text in the dictionary is a path to an image
-            if content.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
-                if os.path.exists(content):
-                    # Open the file from the 'images/' folder and upload it
-                    with open(content, 'rb') as f:
-                        picture = discord.File(f)
-                        await message.channel.send(file=picture)
-                else:
-                    await message.channel.send(f"⚠️ I couldn't find `{content}`. Check if it's in the images folder!")
-            else:
-                # Just send the regular text response
-                await message.channel.send(content)
-            return
-
-    await bot.process_commands(message)
 
 # --- FUN COMMANDS ---
 @bot.tree.command(name="jokes", description="Get a random joke to brighten your day!")
