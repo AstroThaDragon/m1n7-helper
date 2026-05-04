@@ -1,3 +1,6 @@
+# © 2026 The Cosmic Lair & AstroThaDragon. All Rights Reserved. 
+# Unauthorized use of this code is prohibited.
+
 import discord
 from discord.ext import commands, tasks
 import os
@@ -103,34 +106,67 @@ async def on_ready():
 async def on_message(message):
     global bump_timer_active
 
-    # --- DISBOARD BUMP REMINDER LOGIC ---
-    if message.author.id == 302050872383242240:
-        # 2-second delay ensures the embed is fully loaded before the bot reads it
-        await asyncio.sleep(2)
-        
-        if message.embeds and "Bump done!" in (message.embeds[0].description or ""):
+    # Ignore messages from the bot itself so it doesn't reply to itself
+    if message.author == bot.user:
+        return
+
+    # --- 1. TAG LOGIC (Smart Text + File Compatibility) ---
+    if message.content.startswith("-"):
+        tag_name = message.content[1:].lower().strip()
+        if tag_name in tag_list:
+            content = tag_list[tag_name]
             
-            # Prevents double-firing if Discord triggers the message update twice
+            # Check if there is a local image path inside the content
+            if "images/" in content and any(ext in content.lower() for ext in [".png", ".jpg", ".jpeg", ".gif"]):
+                
+                # We split by the last newline to separate the text from the file path
+                if "\n" in content:
+                    parts = content.rsplit("\n", 1)
+                    # Check if the last part is actually the path
+                    if "images/" in parts[1]:
+                        text_caption = parts[0]
+                        file_path = parts[1].strip()
+                    else:
+                        text_caption = content
+                        file_path = None # False alarm, just a mention of images/ in text
+                else:
+                    text_caption = None
+                    file_path = content.strip()
+
+                # If we found a valid path, try to send it
+                if file_path and os.path.exists(file_path):
+                    with open(file_path, 'rb') as f:
+                        await message.channel.send(content=text_caption, file=discord.File(f))
+                else:
+                    # If path was found but file is missing
+                    if file_path:
+                        await message.channel.send(f"⚠️ I couldn't find the file: `{file_path}`")
+                    else:
+                        await message.channel.send(content)
+            else:
+                # If it's just plain text or a Tenor link
+                await message.channel.send(content)
+            return 
+
+    # --- 2. DISBOARD BUMP LOGIC ---
+    if message.author.id == 302050872383242240:
+        await asyncio.sleep(2)
+        if message.embeds and "Bump done!" in (message.embeds[0].description or ""):
             if bump_timer_active:
                 return
 
             bump_timer_active = True
-
-            # Extract the user mention from Disboard's description or interaction
+            
             description = message.embeds[0].description
             user_mention = ""
-
-            # Check for a mention in the description (Standard: <@123...>)
             if "<@" in description:
                 match = re.search(r"<@!?(\+?[0-9]+)>", description)
                 if match:
                     user_mention = match.group(0)
             
-            # If the mention wasn't found in text, try to get the user who triggered the command
             if not user_mention and message.interaction:
                 user_mention = message.interaction.user.mention
 
-            # Fallback if everything else fails
             if not user_mention:
                 user_mention = "there"
 
@@ -140,11 +176,9 @@ async def on_message(message):
             )
             await message.channel.send(thanks_text)
             
-            # Wait 2 hours
-            await asyncio.sleep(7200)
+            await asyncio.sleep(7200) # Wait 2 hours
             
             bump_role_id = "1295212860720418887"
-            
             reminder_embed = discord.Embed(
                 description=(
                     f"*Sniffsniff..*\n\n"
@@ -154,13 +188,10 @@ async def on_message(message):
                 ),
                 color=discord.Color.from_rgb(114, 0, 225)
             )
-            
-            # Mentions the specific role using <@&ID>
             await message.channel.send(content=f"<@&{bump_role_id}>", embed=reminder_embed)
-            
             bump_timer_active = False
 
-    # Required to keep other commands working
+    # --- 3. PROCESS COMMANDS ---
     await bot.process_commands(message)
 
 @bot.event
