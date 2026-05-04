@@ -490,7 +490,10 @@ async def load_extensions():
 
 async def main():
     async with bot:
+        token = os.getenv('DISCORD_TOKEN') 
+        
         await load_extensions()
         await bot.start(token)
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
