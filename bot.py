@@ -106,40 +106,38 @@ async def on_ready():
 async def on_message(message):
     global bump_timer_active
 
-    # Ignore messages from the bot itself so it doesn't reply to itself
+    # Ignore messages from the bot itself
     if message.author == bot.user:
         return
 
-    # --- 1. TAG LOGIC (Robust Text + Link + File Compatibility) ---
+    # --- 1. TAG LOGIC ---
     if message.content.startswith("-"):
         tag_name = message.content[1:].lower().strip()
         if tag_name in tag_list:
             content = tag_list[tag_name]
             
-            # Separate the last line (potential link/path) from the rest of the text
-            if "\n" in content:
-                parts = content.rsplit("\n", 1)
-                text_caption = parts[0].strip()
-                last_line = parts[1].strip()
-            else:
-                text_caption = None
-                last_line = content.strip()
-
-            # CASE A: Web Links (Tenor, etc.) - Send everything together for auto-preview
-            if "http" in last_line.lower():
-                await message.channel.send(content)
-
-            # CASE B: Local Files (and NOT a link)
-            elif "images/" in last_line.lower():
-                if os.path.exists(last_line):
-                    with open(last_line, 'rb') as f:
-                        await message.channel.send(content=text_caption, file=discord.File(f))
+            # Check if "images/" is mentioned anywhere in the tag content
+            if "images/" in content.lower():
+                # Separate the text from the file path using the last newline
+                if "\n" in content:
+                    parts = content.rsplit("\n", 1)
+                    text_caption = parts[0].strip()
+                    file_path = parts[1].strip()
                 else:
-                    await message.channel.send(f"⚠️ I couldn't find the local file: `{last_line}`")
-            
-            # CASE C: Just plain text with no special content
-            else:
-                await message.channel.send(content)
+                    text_caption = None
+                    file_path = content.strip()
+
+                # ONLY try to send as a file if the path actually exists on Railway
+                if os.path.exists(file_path):
+                    with open(file_path, 'rb') as f:
+                        await message.channel.send(content=text_caption, file=discord.File(f))
+                    return # Exit after successful file send
+                
+                # If it doesn't exist, we don't send an error anymore. 
+                # We just fall through to the plain text send below.
+
+            # Fallback: Sends links, plain text, or tags with missing files
+            await message.channel.send(content)
             return 
 
     # --- 2. DISBOARD BUMP LOGIC ---
@@ -148,7 +146,6 @@ async def on_message(message):
         if message.embeds and "Bump done!" in (message.embeds[0].description or ""):
             if bump_timer_active:
                 return
-
             bump_timer_active = True
             
             description = message.embeds[0].description
