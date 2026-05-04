@@ -110,45 +110,35 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # --- 1. TAG LOGIC (Smart Text + File Compatibility) ---
+    # --- 1. TAG LOGIC (Robust Text + Link + File Compatibility) ---
     if message.content.startswith("-"):
         tag_name = message.content[1:].lower().strip()
         if tag_name in tag_list:
             content = tag_list[tag_name]
             
-            # NEW: Check if it's a web link first to avoid local file errors
-            if "http" in content.lower():
-                await message.channel.send(content)
-            
-            # Check if there is a local image path inside the content
-            elif "images/" in content and any(ext in content.lower() for ext in [".png", ".jpg", ".jpeg", ".gif"]):
-                
-                # We split by the last newline to separate the text from the file path
-                if "\n" in content:
-                    parts = content.rsplit("\n", 1)
-                    # Check if the last part is actually the path
-                    if "images/" in parts[1]:
-                        text_caption = parts[0]
-                        file_path = parts[1].strip()
-                    else:
-                        text_caption = content
-                        file_path = None # False alarm, just a mention of images/ in text
-                else:
-                    text_caption = None
-                    file_path = content.strip()
+            # Separate the last line (potential link/path) from the rest of the text
+            if "\n" in content:
+                parts = content.rsplit("\n", 1)
+                text_caption = parts[0].strip()
+                last_line = parts[1].strip()
+            else:
+                text_caption = None
+                last_line = content.strip()
 
-                # If we found a valid path, try to send it
-                if file_path and os.path.exists(file_path):
-                    with open(file_path, 'rb') as f:
+            # CASE A: Web Links (Tenor, etc.) - Send everything together for auto-preview
+            if "http" in last_line.lower():
+                await message.channel.send(content)
+
+            # CASE B: Local Files (and NOT a link)
+            elif "images/" in last_line.lower():
+                if os.path.exists(last_line):
+                    with open(last_line, 'rb') as f:
                         await message.channel.send(content=text_caption, file=discord.File(f))
                 else:
-                    # If path was found but file is missing
-                    if file_path:
-                        await message.channel.send(f"⚠️ I couldn't find the file: `{file_path}`")
-                    else:
-                        await message.channel.send(content)
+                    await message.channel.send(f"⚠️ I couldn't find the local file: `{last_line}`")
+            
+            # CASE C: Just plain text with no special content
             else:
-                # If it's just plain text
                 await message.channel.send(content)
             return 
 
