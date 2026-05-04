@@ -18,7 +18,8 @@ load_dotenv()
 
 intents = discord.Intents.default()
 intents.message_content = True
-intents.members = True 
+intents.members = True
+intents.voice_states = True 
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
@@ -93,8 +94,14 @@ async def stargazing_alert():
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name}')
-    await bot.tree.sync() 
     
+    # Sync slash commands
+    try:
+        await bot.tree.sync()
+    except Exception as e:
+        print(f"Error syncing tree: {e}")
+    
+    # Start loops if they aren't running
     if not change_status.is_running():
         change_status.start()
         
@@ -102,20 +109,7 @@ async def on_ready():
         stargazing_alert.start()
         
     print("Status rotator and Stargazing alerts are now active!")
-
-# --- EVENTS ---
-@bot.event
-async def on_ready():
-    print(f'Logged in as {bot.user.name}')
-    await bot.tree.sync() 
-    
-    if not change_status.is_running():
-        change_status.start()
-        
-    if not stargazing_alert.is_running():
-        stargazing_alert.start()
-        
-    print("Status rotator and Stargazing alerts are now active!")
+    print("Music system (PyNaCl & yt-dlp) is ready to rock! 🎵")
 
 @bot.event
 async def on_message(message):
