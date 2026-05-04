@@ -116,8 +116,12 @@ async def on_message(message):
         if tag_name in tag_list:
             content = tag_list[tag_name]
             
+            # NEW: Check if it's a web link first to avoid local file errors
+            if "http" in content.lower():
+                await message.channel.send(content)
+            
             # Check if there is a local image path inside the content
-            if "images/" in content and any(ext in content.lower() for ext in [".png", ".jpg", ".jpeg", ".gif"]):
+            elif "images/" in content and any(ext in content.lower() for ext in [".png", ".jpg", ".jpeg", ".gif"]):
                 
                 # We split by the last newline to separate the text from the file path
                 if "\n" in content:
@@ -144,7 +148,7 @@ async def on_message(message):
                     else:
                         await message.channel.send(content)
             else:
-                # If it's just plain text or a Tenor link
+                # If it's just plain text
                 await message.channel.send(content)
             return 
 
