@@ -11,6 +11,7 @@ from discord import app_commands
 import aiohttp
 import asyncio
 import re
+import yt_dlp
 from datetime import datetime, time, timezone, timedelta
 
 load_dotenv()
@@ -484,5 +485,12 @@ async def resetbump(ctx):
     bump_timer_active = False
     await ctx.send("Bump timer safety has been reset! 🔄")
 
-token = os.getenv('DISCORD_TOKEN')
-bot.run(token)
+async def load_extensions():
+    await bot.load_extension('music')
+
+async def main():
+    async with bot:
+        await load_extensions()
+        await bot.start(token)
+
+asyncio.run(main())
