@@ -478,7 +478,8 @@ class Verification(commands.Cog):
             description=(
                 "Select the type of verification you want below.\n\n"
                 "Verification is manually reviewed by staff.\n"
-                "Please follow all instructions carefully."
+                "Please follow all instructions carefully!\n\n"
+                "**Please note: You must be level 10 (Stellar Specialist) or higher to apply for NSFW and NSFW+ access.**"
             ),
             color=discord.Color.red()
         )
