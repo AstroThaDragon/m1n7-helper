@@ -707,13 +707,13 @@ async def help_command(ctx):
             "✨| Uncommon\n"
             "🌙 | Rare\n"
             "Legendary and Void have their own special open messages, so you'll know about those!\n\n"
-            "-# ***(Disclaimer: the fortunes can be negative, sad, etc. to keep them realistic. It's just a little game, don't take it too serious!)***\n\n"
+            "-# ***(Disclaimer: the fortunes can be negative, sad, etc. to keep them realistic. It's just a little game, don't take it too seriously!)***\n\n"
             "`/freakyrate` - Discover how freaky you or a member is!\n"
             "`/furryrate` - Determine how furry you or a member is!\n"
             "`/horoscope <sign>` - Check your daily horoscope.\n"
             "`/iqrate` - Get a random IQ score for you or a member!\n"
             "`/iss` - Track the International Space Station's current position.\n"
-            "`/mock <text>` - mAkE yOuR tExT lOoK lIkE tHiS.\n"
+            "`/leaderboard` `-levelscores` - View the top 10 members with the highest levels and XP, and scroll also through all members!\n"
         ),
         inline=False
     )
@@ -721,6 +721,7 @@ async def help_command(ctx):
     embed.add_field(
         name="__ 🎮 Fun & Cosmic Games (3)__",
         value=(
+            "`/mock <text>` - mAkE yOuR tExT lOoK lIkE tHiS.\n"
             "`/moon` - Check the current moon phase.\n"
             "`/nasa` - See NASA's Astronomy Picture of the Day!\n"
             f"`/pullsword` `-ps` - Attempt to pull the ancient Cosmic Blade from the stone and claim the Bladebearer title! Resets daily at <t:{daily_reset}:t>.\n"

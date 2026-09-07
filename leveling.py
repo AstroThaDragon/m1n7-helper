@@ -31,9 +31,110 @@ class ResetConfirm(discord.ui.View):
         await interaction.response.edit_message(content="❌ Reset cancelled.", view=None)
         self.stop()
 
+class LeaderboardView(discord.ui.View):
+    def __init__(self, cog, author, entries, per_page=10):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.author = author
+        self.entries = entries
+        self.per_page = per_page
+        self.current_page = 0
+        self.max_pages = max(1, (len(entries) + per_page - 1) // per_page)
+        self.update_buttons()
+
+    def update_buttons(self):
+        self.first_page.disabled = (self.current_page == 0)
+        self.back_3.disabled = (self.current_page == 0)
+        self.prev_page.disabled = (self.current_page == 0)
+
+        self.next_page.disabled = (self.current_page >= self.max_pages - 1)
+        self.forward_3.disabled = (self.current_page >= self.max_pages - 1)
+        self.last_page.disabled = (self.current_page >= self.max_pages - 1)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author.id:
+            await interaction.response.send_message("❌ This leaderboard menu isn't for you! You can type your own out though!", ephemeral=True)
+            return False
+        return True
+
+    def build_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="🌌 The Cosmic Lair - XP Leaderboard",
+            color=discord.Color.purple()
+        )
+
+        start_idx = self.current_page * self.per_page
+        end_idx = start_idx + self.per_page
+        page_entries = self.entries[start_idx:end_idx]
+
+        if not page_entries:
+            embed.description = "No rankings found."
+            return embed
+
+        description_lines = []
+        for rank, (user_id, xp, level) in enumerate(page_entries, start=start_idx + 1):
+            xp_start = self.cog.get_xp_for_level(level)
+            xp_end = self.cog.get_xp_for_level(level + 1)
+            xp_within_level = xp - xp_start
+            needed_for_level = xp_end - xp_start
+
+            if rank == 1:
+                rank_str = "🥇"
+            elif rank == 2:
+                rank_str = "🥈"
+            elif rank == 3:
+                rank_str = "🥉"
+            else:
+                rank_str = f"**#{rank}**"
+
+            line = (
+                f"{rank_str} <@{user_id}>\n"
+                f"└ **Level {level}** • Progress: `{xp_within_level:,} / {needed_for_level:,} XP` (Total: `{xp:,} XP`)\n"
+            )
+            description_lines.append(line)
+
+        embed.description = "\n".join(description_lines)
+        embed.set_footer(text=f"Page {self.current_page + 1} of {self.max_pages} • Total Members: {len(self.entries)}")
+        return embed
+
+    @discord.ui.button(emoji="⏮️", style=discord.ButtonStyle.primary, row=0)
+    async def first_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = 0
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="-3", emoji="⏪", style=discord.ButtonStyle.secondary, row=1)
+    async def back_3(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = max(0, self.current_page - 3)
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(emoji="◀️", style=discord.ButtonStyle.primary, row=0)
+    async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = max(0, self.current_page - 1)
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(emoji="▶️", style=discord.ButtonStyle.primary, row=0)
+    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = min(self.max_pages - 1, self.current_page + 1)
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="+3", emoji="⏩", style=discord.ButtonStyle.secondary, row=1)
+    async def forward_3(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = min(self.max_pages - 1, self.current_page + 3)
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.primary, row=0)
+    async def last_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = self.max_pages - 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
 async def load_custom_image(url):
     async with aiohttp.ClientSession() as session:
-        # This 'User-Agent' makes the bot look like a real person to Imgur
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"}
         async with session.get(url, headers=headers) as response:
             if response.status == 200:
@@ -268,15 +369,13 @@ class FontPreviewSelect(discord.ui.Select):
 
 class FontView(discord.ui.View):
     def __init__(self, cog):
-        super().__init__(timeout=None) # Persistent view so it never expires
+        super().__init__(timeout=None)
         self.add_item(FontPreviewSelect(cog))
 
 class Leveling(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         
-        # --- Fixed Database Pathing ---
-        # We check for the absolute path first to ensure we are in the Railway Volume
         if os.path.exists('/app/data'):
             self.db_path = '/app/data/levels.db'
             print(f"LevelingCog: Using PRODUCTION database at {self.db_path}")
@@ -284,9 +383,6 @@ class Leveling(commands.Cog):
             self.db_path = 'levels.db'
             print(f"LevelingCog: Using LOCAL database at {self.db_path}")
 
-        # ... (rest of your configuration stays exactly the same)
-
-        # --- CONFIGURATION ---
         self.ANNOUNCEMENT_CHANNEL_ID = 1306602160527507456 
         self.BOOSTER_ROLE_ID = 927505358736470047          
         self.WATCHLIST_ROLE_ID = 928584760748564570       
@@ -340,16 +436,7 @@ class Leveling(commands.Cog):
             await db.commit()
 
     def get_xp_for_level(self, level):
-        """
-        The 'Infinite Slide' Formula. 
-        One equation for Level 1-100. 
-        Zero tier jumps, just a perfectly smooth difficulty curve.
-        """
         if level <= 0: return 0
-        
-        # Total XP = (68 * L^2) + (150 * L) - 93
-        # Level 1 starts at 125 XP.
-        # Level 100 ends at 694,907 XP (~24.8k messages).
         return (68 * (level**2)) + (150 * level) - 93
 
     async def _update_member_roles(self, member, new_level):
@@ -368,7 +455,6 @@ class Leveling(commands.Cog):
             if new_role and new_role not in member.roles:
                 await member.add_roles(new_role)
                 
-                # ONLY send the announcement if they hit the exact milestone level
                 if is_milestone and new_level > 0:
                     announcement_channel = self.bot.get_channel(self.ANNOUNCEMENT_CHANNEL_ID)
                     if announcement_channel:
@@ -385,7 +471,6 @@ class Leveling(commands.Cog):
                 await member.remove_roles(*[r for r in roles_to_remove if r])
 
     async def add_xp(self, member: discord.Member, amount: int):
-        """Internal helper to award XP from external events like Bumping."""
         if member.bot: return
 
         user_id = member.id
@@ -394,14 +479,12 @@ class Leveling(commands.Cog):
                 result = await cursor.fetchone()
 
             if result is None:
-                # If they aren't in the DB yet, start them at Level 0 + the reward
                 xp, level = amount, 0
                 await db.execute("INSERT INTO users (user_id, xp, level) VALUES (?, ?, ?)", (user_id, xp, level))
             else:
                 xp, level = result
                 new_xp = xp + amount
                 
-                # Level up logic
                 temp_level = level
                 while new_xp >= self.get_xp_for_level(temp_level + 1):
                     temp_level += 1
@@ -417,7 +500,6 @@ class Leveling(commands.Cog):
     @commands.Cog.listener()
     async def on_member_join(self, member):
         if member.bot: return
-        # Automatically give Level 0 role on join
         await self._update_member_roles(member, 0)
 
     @commands.Cog.listener()
@@ -478,22 +560,19 @@ class Leveling(commands.Cog):
             if not result: return await ctx.send("This user hasn't earned any XP yet!")
 
             xp, level, bar_color, bg_url, fortune_streak, font_choice, booster_glow = result
-            streak_number = fortune_streak or 0 # Default to 0 if null
+            streak_number = fortune_streak or 0
             
             xp_start = self.get_xp_for_level(level)
             xp_end = self.get_xp_for_level(level + 1)
             
-            # Math for the progress within the current level
             xp_within_level = xp - xp_start
             needed_for_level = xp_end - xp_start
             
-            # Calculate percentage as a decimal (0.0 to 1.0)
             if needed_for_level > 0:
                 percentage = xp_within_level / needed_for_level
             else:
                 percentage = 0
 
-            # CLAMP: This prevents the bar from breaking if the math goes weird
             percentage = max(0, min(percentage, 1))
 
             current_role_name = "No Rank"
@@ -543,17 +622,12 @@ class Leveling(commands.Cog):
             badge_size = (45, 45)
 
             try:
-                # 1. Starborn Icon (Top Left of Avatar)
                 if member.get_role(STARBORN_ROLE_ID) and os.path.exists("icons/starborn_icon.png"):
                     starborn_icon = Editor("icons/starborn_icon.png").resize(badge_size)
-                    # Coordinates place it slightly overlapping the top-left edge of the PFP
                     background.paste(starborn_icon, (30, 40)) 
 
-                # 2. Staff Hierarchy (Bottom Left of Avatar)
-                # The if/elif chain ensures only ONE of these ever shows up in this spot
                 if member.get_role(OWNER_ROLE_ID) and os.path.exists("icons/owner_icon.png"):
                     owner_icon = Editor("icons/owner_icon.png").resize(badge_size)
-                    # Coordinates place it slightly overlapping the bottom-left edge of the PFP
                     background.paste(owner_icon, (30, 170)) 
                 elif member.get_role(ADMIN_ROLE_ID) and os.path.exists("icons/admin_icon.png"):
                     admin_icon = Editor("icons/admin_icon.png").resize(badge_size)
@@ -562,19 +636,15 @@ class Leveling(commands.Cog):
                     mod_icon = Editor("icons/mod_icon.png").resize(badge_size)
                     background.paste(mod_icon, (30, 170))
 
-                # 3. Watchlist Icon (Top Center of Avatar, Invisible if unearned)
                 if member.get_role(self.WATCHLIST_ROLE_ID) and os.path.exists("icons/watchlist_icon.png"):
                     watchlist_icon = Editor("icons/watchlist_icon.png").resize(badge_size)
-                    # X=102 perfectly centers it over the 150px avatar. Y=10 tucks it right above.
                     background.paste(watchlist_icon, (102, 10))
 
             except Exception as e:
                 print(f"Error drawing avatar badges: {e}")
             
-            # 1. Set the default fallback path
             active_font_path = "fonts/ComicRelief-Regular.ttf"
             
-            # 2. Route the path based on what they picked in the dropdown
             if font_choice == "bangers":
                 active_font_path = "fonts/Bangers-Regular.ttf" 
             elif font_choice == "bytesized":
@@ -624,7 +694,6 @@ class Leveling(commands.Cog):
             elif font_choice == "ubuntu":
                 active_font_path = "fonts/Ubuntu-Regular.ttf"
                 
-            # 3. Apply the chosen path to all your sizes
             font_large = Font(active_font_path, size=45)
             font_medium = Font(active_font_path, size=32)
             font_small = Font(active_font_path, size=22)
@@ -632,34 +701,29 @@ class Leveling(commands.Cog):
             
             st_col, st_width = (0, 0, 0), 2
 
-            # --- TOP LEFT ICONS LOGIC (IMAGE BASED) ---
-            # Moved to X: 230 (aligned left with your text) and Y: 45 (right above the role name)
             current_icon_x = 230 
             icon_y = 45
-            icon_spacing = 60 # Increased spacing to accommodate bigger icons
-            icon_size = (45, 45) # Bumped up from 30x30!
+            icon_spacing = 60 
+            icon_size = (45, 45) 
             
             SWORD_ROLE_ID = 1505077643567956069
             DRAGON_ROLE_ID = 1505083974509269074
 
             try:
-                # Helper function to safely lower opacity of unearned icons by 70%
                 def get_icon(path, earned):
                     img = Image.open(path).convert("RGBA")
                     if not earned:
                         r, g, b, a = img.split()
-                        a = a.point(lambda p: p * 0.3) # 0.3 = 30% visible
+                        a = a.point(lambda p: p * 0.3)
                         img.putalpha(a)
                     return Editor(img).resize(icon_size)
 
-                # 1. Sword Icon
                 if os.path.exists("icons/sword_icon.png"):
                     has_sword = bool(member.get_role(SWORD_ROLE_ID))
                     sword_icon = get_icon("icons/sword_icon.png", has_sword)
                     background.paste(sword_icon, (current_icon_x, icon_y))
                     current_icon_x += icon_spacing
                         
-                # 2. Dragon Icon
                 if os.path.exists("icons/dragon_icon.png"):
                     has_dragon = bool(member.get_role(DRAGON_ROLE_ID))
                     dragon_icon = get_icon("icons/dragon_icon.png", has_dragon)
@@ -668,43 +732,32 @@ class Leveling(commands.Cog):
                         
                 cookie_x = current_icon_x
 
-                # 3. Cookie Icon (Pasted first, always solid)
                 if os.path.exists("icons/cookie_icon.png"):
                     cookie_icon = Editor("icons/cookie_icon.png").resize(icon_size)
                     background.paste(cookie_icon, (cookie_x, icon_y))
                     
-                    # Shifted closer to the cookie (changed from +50 to +40)
                     text_x = cookie_x + 40 
                     
-                    # 4. Fire Icon (Scaled exactly to 45x45 to match the cookie)
                     if streak_number >= 3 and os.path.exists("icons/fire_icon.png"):
                         fire_icon = Editor("icons/fire_icon.png").resize((45, 45))
-                        # Adjusted the Y-offset to tuck it nicely next to the cookie
                         background.paste(fire_icon, (text_x, icon_y - 18))
 
-                    # 5. Streak Number Text (Layered directly on top of the fire)
-                    # Centered nicely within the new 45px flame
                     background.text((text_x + 22, icon_y - 0), f"{streak_number}", font=font_tiny, color="white", align="center", stroke_width=st_width, stroke_fill=st_col)
 
-                # 6. Booster Icon (Below Progress Bar, Transparent if unearned)
                 if os.path.exists("icons/booster_icon.png"):
                     has_booster = bool(member.get_role(self.BOOSTER_ROLE_ID))
                     
-                    # Custom smaller size (35x35) for the booster badge
                     img = Image.open("icons/booster_icon.png").convert("RGBA")
                     if not has_booster:
                         r, g, b, a = img.split()
                         a = a.point(lambda p: p * 0.3)
                         img.putalpha(a)
                     booster_icon = Editor(img).resize((35, 35))
-                    
-                    # Moved down to Y=232 so it clears the expanded glowing border
                     background.paste(booster_icon, (230, 232))
                         
             except Exception as e:
                 print(f"Error drawing rank card icons: {e}")
 
-            # --- STANDARD RANK CARD TEXT ---
             background.text((550, 50), "Rank", font=font_small, color="white", stroke_width=st_width, stroke_fill=st_col)
             background.text((610, 42), f"#{dragon_rank}", font=font_large, color="white", stroke_width=st_width, stroke_fill=st_col)
             background.text((750, 50), "Level", font=font_small, color="#a97dd1", stroke_width=st_width, stroke_fill=st_col)
@@ -712,40 +765,46 @@ class Leveling(commands.Cog):
             background.text((230, 130), f"{member.name}", font=font_medium, color="white", stroke_width=st_width, stroke_fill=st_col)
             background.text((230, 95), f"{current_role_name}", font=font_small, color="#d3d3d3", stroke_width=st_width, stroke_fill=st_col)
 
-            # --- PROGRESS BAR (BOOSTER GLOW VS NORMAL OUTLINE) ---
-
-            # Check if they are a booster AND have their toggle set to 'on'
             is_glowing = member.get_role(self.BOOSTER_ROLE_ID) and (booster_glow == 'on')
 
             if is_glowing:
-                # 1. Booster Glow Enabled: High-intensity vibrant cosmic glow
                 background.rectangle((223, 178), width=614, height=49, fill=(160, 32, 240, 140), radius=15)
                 background.rectangle((225, 180), width=610, height=45, fill=(0, 242, 254, 180), radius=13)
                 background.rectangle((227, 182), width=606, height=41, fill=(255, 0, 128, 220), radius=11)
             else:
-                # 2. Regular Members OR Boosters with Glow Turned Off: Clean default black outline
                 background.rectangle((228, 183), width=604, height=39, fill="black", radius=12)
 
-            # 3. Progress Bar Background (The empty dark gray track)
             background.rectangle((230, 185), width=600, height=35, fill="#3d3d3d", radius=10)
 
-            # 4. The actual progress (the colored part)
             if percentage > 0:
                 bar_width = int(600 * percentage)
                 if bar_width > 0:
                     background.rectangle((230, 185), width=max(bar_width, 20), height=35, fill=bar_color, radius=10)
             
-            # --- XP TEXT LOGIC ---
-            # Top Text: XP earned in this level / Total XP needed to finish this level
             background.text((830, 155), f"Next level: {xp_within_level} / {needed_for_level} XP", font=font_small, color="white", align="right", stroke_width=st_width, stroke_fill=st_col)
-            
-            # Bottom Text: Total lifetime XP currently held
             background.text((830, 238), f"Total: {xp} XP", font=font_small, color="#d3d3d3", align="right", stroke_width=st_width, stroke_fill=st_col)
 
             await ctx.send(file=discord.File(fp=background.image_bytes, filename="rank.png"))
         except Exception as e:
             print(f"Error: {e}")
             await ctx.send("There was an error generating the rank card.")
+
+    @commands.hybrid_command(name="leaderboard", aliases=["levelscores"], description="View the server XP leaderboard!")
+    async def leaderboard(self, ctx):
+        await ctx.defer()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT user_id, xp, level FROM users ORDER BY xp DESC"
+            ) as cursor:
+                entries = await cursor.fetchall()
+
+        if not entries:
+            return await ctx.send("No members found on the leaderboard yet!")
+
+        view = LeaderboardView(self, ctx.author, entries)
+        embed = view.build_embed()
+        await ctx.send(embed=embed, view=view)
 
     @commands.hybrid_command(name="customize", description="Change your rank card bar color, background, font, or booster glow!")
     @app_commands.rename(color_hex="color", background_url="background", font_choice="font", glow_toggle="glow")
@@ -797,7 +856,6 @@ class Leveling(commands.Cog):
             if background_url: 
                 await db.execute("UPDATE users SET bg_url = ? WHERE user_id = ?", (background_url, ctx.author.id))
             if font_choice:
-                # This grabs the 'value' (e.g., 'font2') to store in your database
                 await db.execute("UPDATE users SET font_choice = ? WHERE user_id = ?", (font_choice.value, ctx.author.id))
             if glow_toggle:
                 await db.execute("UPDATE users SET booster_glow = ? WHERE user_id = ?", (glow_toggle.value, ctx.author.id))
@@ -843,20 +901,16 @@ class Leveling(commands.Cog):
     @app_commands.command(name="addxp", description="Add XP to a user's current total (Admin only)")
     @commands.has_permissions(administrator=True)
     async def addxp(self, interaction: discord.Interaction, member: discord.Member, amount: int):
-        # Run your existing helper function which handles the math, DB, and roles!
         await self.add_xp(member, amount)
         
-        # Fetch their updated stats to show in the confirmation message
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute("SELECT xp, level FROM users WHERE user_id = ?", (member.id,)) as cursor:
                 result = await cursor.fetchone()
                 
         if result:
             new_xp, new_level = result
-            # Removed ephemeral=True so it posts publicly in the channel
             await interaction.response.send_message(f"✅ Added {amount} XP to {member.mention}! They now have **{new_xp} XP** (Level {new_level}).")
         else:
-            # Removed ephemeral=True here as well
             await interaction.response.send_message(f"✅ Added {amount} XP to {member.mention}!")
 
     @app_commands.command(name="sync_levels", description="Syncs everyone's levels based on roles without resetting progress. (Admin only!)")

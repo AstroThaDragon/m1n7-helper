@@ -28,8 +28,10 @@ pending_codes = {}
 
 
 def generate_code():
-    letters = ''.join(random.choices(string.ascii_uppercase, k=4))
-    numbers = ''.join(random.choices(string.digits, k=3))
+    letter_count = random.randint(4, 8)
+    number_count = random.randint(3, 6)
+    letters = ''.join(random.choices(string.ascii_uppercase, k=letter_count))
+    numbers = ''.join(random.choices(string.digits, k=number_count))
     return f"{letters}-{numbers}"
 
 class VerifyView(View):
@@ -56,8 +58,15 @@ class VerifyView(View):
                 "Go back to the server and enter this code."
             )
         except discord.Forbidden:
+            pending_codes.pop(member.id, None)
             return await interaction.response.send_message(
-                "⚠️ I couldn't DM you. Please enable DMs from server members, then try again.",
+                "⚠️ **DM Delivery Failed!**\n"
+                "I couldn't send you a verification code because your Direct Messages are disabled for this server.\n\n"
+                "**How to fix:**\n"
+                "1. Right-click or tap the server icon / header (**The Cosmic Lair**).\n"
+                "2. Go to **Privacy Settings**.\n"
+                "3. Enable **Direct Messages**.\n"
+                "4. Click the **Verify** button again!",
                 ephemeral=True
             )
 
@@ -65,8 +74,8 @@ class VerifyView(View):
             "✅ I sent you a verification code in DMs!\n\n"
             "Once you receive it, return here and type:\n"
             "`-verifycode YOUR-CODE`\n\n"
-            "Example:\n"
-            "`-verifycode STAR-482`",
+            f"Example:\n"
+            f"`-verifycode {code}`",
             ephemeral=True
         )
 
@@ -179,7 +188,7 @@ class Moderation(commands.Cog):
 
             return
 
-        # --- NEW: Save the new member to the database to start their 30-minute timer ---
+        # Save the new member to the database to start their 30-minute timer
         async with aiosqlite.connect(VERIFICATION_DB_PATH) as db:
             await db.execute(
                 "INSERT OR IGNORE INTO pending_verifications (user_id) VALUES (?)",
@@ -205,17 +214,28 @@ class Moderation(commands.Cog):
         )
 
     @commands.command()
-    async def verifycode(self, ctx, code: str):
+    async def verifycode(self, ctx, *, code: str):
         member = ctx.author
         correct_code = pending_codes.get(member.id)
 
         if not correct_code:
             return await ctx.send(
-                "❌ You do not currently have an active verification code.",
+                "❌ You do not currently have an active verification code. Click the **Verify** button to generate one!\n"
+                "-# *(If you already clicked it, make sure your server DMs are turned ON so Enceladus can message you)*",
                 delete_after=10
             )
 
-        if code.strip().upper() != correct_code:
+        cleaned_code = code.strip().upper()
+
+        # Alert if they typed a space instead of a dash
+        if " " in cleaned_code and "-" not in cleaned_code:
+            return await ctx.send(
+                f"⚠️ {member.mention}, make sure to use a dash (`-`) between letters and numbers, not a space!\n"
+                f"Example: `-verifycode {cleaned_code.replace(' ', '-')}`",
+                delete_after=10
+            )
+
+        if cleaned_code != correct_code:
             return await ctx.send(
                 "❌ Incorrect verification code. Check your DMs and try again.",
                 delete_after=10
@@ -232,17 +252,17 @@ class Moderation(commands.Cog):
         if unverified_role and unverified_role in member.roles:
             await member.remove_roles(unverified_role)
             
-            # --- NEW: STOP THE TIMER ---
+            # STOP THE TIMER
             async with aiosqlite.connect(VERIFICATION_DB_PATH) as db:
                 await db.execute("DELETE FROM pending_verifications WHERE user_id = ?", (member.id,))
                 await db.commit()
 
         pending_codes.pop(member.id, None)
-        # (Keep the rest of your success messages below)
 
-        pending_codes.pop(member.id, None)
-
-        await ctx.message.delete()
+        try:
+            await ctx.message.delete()
+        except discord.Forbidden:
+            pass
 
         await ctx.send(
             f"✅ {member.mention}, you're verified! Welcome to The Cosmic Lair!",
@@ -263,6 +283,15 @@ class Moderation(commands.Cog):
         except discord.Forbidden:
             pass
 
+    @verifycode.error
+    async def verifycode_error(self, ctx, error):
+        if isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send(
+                f"⚠️ {ctx.author.mention}, you forgot to include your code!\n"
+                f"Format: `-verifycode YOUR-CODE`",
+                delete_after=10
+            )
+
     @commands.Cog.listener()
     async def on_message(self, message):
 
@@ -275,13 +304,51 @@ class Moderation(commands.Cog):
         if any(role.id in VERIFY_MESSAGE_EXEMPT_ROLE_IDS for role in message.author.roles):
             return
 
+        content = message.content.strip()
+        content_lower = content.lower()
+
+        # Check for common verification command mistakes before deleting the message
+        user_code = pending_codes.get(message.author.id)
+        is_just_code = False
+
+        if user_code and content.upper() == user_code:
+            is_just_code = True
+        else:
+            # Check for variable-length code patterns (4-8 letters, dash, 3-6 digits)
+            parts = content.split("-")
+            if len(parts) == 2 and parts[0].isalpha() and parts[1].isdigit():
+                if 4 <= len(parts[0]) <= 8 and 3 <= len(parts[1]) <= 6:
+                    is_just_code = True
+
+        # 1. Typed just the code without command prefix
+        if is_just_code:
+            await message.channel.send(
+                f"⚠️ {message.author.mention}, you typed the code without the command!\n"
+                f"Format: `-verifycode {content.upper()}`",
+                delete_after=10
+            )
+
+        # 2. Forgot the '-' prefix (e.g., "verifycode COSMIC-91823")
+        elif content_lower.startswith("verifycode"):
+            await message.channel.send(
+                f"⚠️ {message.author.mention}, don't forget the `-` at the start!\n"
+                f"Format: `-{content}`",
+                delete_after=10
+            )
+
+        # 3. Added spaces or hyphens into the command name (e.g., "-verify code")
+        elif content_lower.startswith(("-verify code", "-verify-code", "verify-code", "verify code")):
+            await message.channel.send(
+                f"⚠️ {message.author.mention}, the command must be written as `-verifycode` (one word, no spaces).\n"
+                f"Example: `-verifycode YOUR-CODE`",
+                delete_after=10
+            )
+
         await asyncio.sleep(5)
 
         try:
             await message.delete()
-        except discord.Forbidden:
-            pass
-        except discord.NotFound:
+        except (discord.Forbidden, discord.NotFound):
             pass
 
     @commands.Cog.listener()
@@ -289,9 +356,6 @@ class Moderation(commands.Cog):
         log_channel = self.bot.get_channel(MOD_LOG_CHANNEL_ID)
 
         if not log_channel:
-            return
-
-        if before.channel == after.channel:
             return
 
         if before.channel is None and after.channel is not None:
@@ -304,10 +368,12 @@ class Moderation(commands.Cog):
             desc = f"{member.mention} left {before.channel.mention}"
             color = discord.Color.red()
 
-        else:
+        elif before.channel is not None and after.channel is not None:
             title = "🔁 Voice Moved"
             desc = f"{member.mention} moved from {before.channel.mention} to {after.channel.mention}"
             color = discord.Color.orange()
+        else:
+            return
 
         embed = discord.Embed(
             title=title,
@@ -469,21 +535,17 @@ class Moderation(commands.Cog):
             
             for row in rows:
                 user_id, join_time_str = row
-                # Convert SQLite timestamp to a timezone-aware Python datetime
                 join_time = datetime.strptime(join_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
                 
-                # Check if 30 minutes have passed
                 if (datetime.now(timezone.utc) - join_time) > timedelta(minutes=30):
                     member_found = False
                     
-                    # Search for the user in the server
                     for guild in self.bot.guilds:
                         member = guild.get_member(user_id)
                         if member:
                             member_found = True
                             unverified_role = guild.get_role(UNVERIFIED_ROLE_ID)
                             
-                            # If they still have the unverified role, apply strike and kick/ban
                             if unverified_role and unverified_role in member.roles:
                                 strikes = await self.add_verification_strike(member.id)
                                 
@@ -506,7 +568,6 @@ class Moderation(commands.Cog):
                                 else:
                                     await member.kick(reason=f"Did not verify within 30 minutes. Verification strike {strikes}/3.")
 
-                    # Delete them from the database regardless (whether kicked, or they left manually)
                     await db.execute("DELETE FROM pending_verifications WHERE user_id = ?", (user_id,))
             
             await db.commit()

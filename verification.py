@@ -2,11 +2,16 @@ import discord
 from discord.ext import commands
 from discord.ui import View, Select, Button, Modal, TextInput
 import os
+import json
+import time
 
+COOLDOWN_FILE = "verification_cooldowns.json"
 
 VERIFICATION_CHANNEL_ID = 1297033393313288263
 VERIFICATION_LOG_CHANNEL_ID = 1352834838478061608
 PENDING_VERIFICATION_ROLE_ID = 1504001672576241665
+
+LEVEL_10_ROLE_ID = 1295861102483210260
 
 VERIFICATION_TEAM_ROLE_ID = 1502764416356319413
 OWNER_ID = 395453475284320268
@@ -41,6 +46,38 @@ APPLICATION_TYPES = {
         ]
     }
 }
+
+def get_cooldown(user_id):
+    if not os.path.exists(COOLDOWN_FILE):
+        return 0, None
+    try:
+        with open(COOLDOWN_FILE, "r") as f:
+            data = json.load(f)
+        user_data = data.get(str(user_id))
+        if not user_data:
+            return 0, None
+        
+        # Returns (expiration_timestamp, reason)
+        return user_data.get("expires_at", 0), user_data.get("reason", "a previous application")
+    except:
+        return 0, None
+
+def set_cooldown(user_id, hours, reason):
+    data = {}
+    if os.path.exists(COOLDOWN_FILE):
+        try:
+            with open(COOLDOWN_FILE, "r") as f:
+                data = json.load(f)
+        except:
+            data = {}
+
+    data[str(user_id)] = {
+        "expires_at": time.time() + (hours * 3600),
+        "reason": reason
+    }
+
+    with open(COOLDOWN_FILE, "w") as f:
+        json.dump(data, f, indent=4)
 
 class ReasonModal(Modal):
     def __init__(self, cog, member, application_key, approved):
@@ -202,48 +239,71 @@ class VerificationReviewView(View):
         custom_id="verification_cancel"
     )
     async def cancel_button(self, interaction, button):
-        if interaction.user.id != self.member.id:
+        allowed_roles = [
+            VERIFICATION_TEAM_ROLE_ID,
+            ADMIN_ROLE_ID
+        ]
+        
+        is_staff = interaction.user.id == OWNER_ID or any(role.id in allowed_roles for role in interaction.user.roles)
+        is_applicant = interaction.user.id == self.member.id
+
+        # Catch-all just in case someone slips through the interaction_check
+        if not is_applicant and not is_staff:
             return await interaction.response.send_message(
-                "❌ Only the applicant can cancel this verification request.",
+                "❌🪲 You do not have permission to cancel this verification request. If you're seeing this, it is an error! Please inform staff!",
                 ephemeral=True
             )
 
-        await interaction.response.send_message(
-            "⚠️ Are you sure you want to cancel this verification request?",
-            view=CancelConfirmView(self),
-            ephemeral=True
-        )
+        # Response for the applicant
+        if is_applicant:
+            await interaction.response.send_message(
+                "⚠️ Are you sure you want to cancel your verification request? You can reapply for an application later.",
+                view=CancelConfirmView(self),
+                ephemeral=True
+            )
+        # Response for staff/owner
+        else:
+            await interaction.response.send_message(
+                f"⚠️ **Staff Action:** Are you sure you want to forcibly cancel {self.member.display_name}'s verification request?",
+                view=CancelConfirmView(self),
+                ephemeral=True
+            )
 
     async def cancel_application(self, interaction):
         guild = interaction.guild
         thread = interaction.channel
+        is_applicant = interaction.user.id == self.member.id
 
-        pending_role = guild.get_role(PENDING_VERIFICATION_ROLE_ID)
-        refreshed_member = await guild.fetch_member(self.member.id)
-
-        if pending_role and pending_role in refreshed_member.roles:
-            await refreshed_member.remove_roles(pending_role)
+        # Apply 30-minute cooldown only if applicant cancels
+        if is_applicant:
+            set_cooldown(self.member.id, 0.5, reason="cancellation")
 
         try:
-            await refreshed_member.send(
-                "🛑 Your verification request has been cancelled."
-            )
-        except:
-            pass
+            refreshed_member = await guild.fetch_member(self.member.id)
+            pending_role = guild.get_role(PENDING_VERIFICATION_ROLE_ID)
+
+            if pending_role and pending_role in refreshed_member.roles:
+                await refreshed_member.remove_roles(pending_role)
+
+            try:
+                await refreshed_member.send("🛑 Your verification request has been cancelled.")
+            except:
+                pass
+            
+            if is_applicant:
+                cancellation_text = f"🛑 {refreshed_member.mention} cancelled their verification request."
+            else:
+                cancellation_text = f"🛑 Verification request for {refreshed_member.mention} was cancelled by staff ({interaction.user.mention})."
+        except discord.NotFound:
+            cancellation_text = "🛑 The verification request was cancelled, but the user is no longer in the server."
 
         await interaction.response.edit_message(
             content="🛑 Verification request cancelled.",
             view=None
         )
 
-        await thread.send(
-            f"🛑 {refreshed_member.mention} cancelled their verification request."
-        )
-
-        await thread.edit(
-            archived=True,
-            locked=True
-        )
+        await thread.send(cancellation_text)
+        await thread.edit(archived=True, locked=True)
 
 class VerificationDropdown(Select):
     def __init__(self, cog):
@@ -279,10 +339,37 @@ class VerificationDropdown(Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-
         guild = interaction.guild
         member = interaction.user
+
+        # Cooldown check with reason
+        current_time = time.time()
+        cooldown_end, reason = get_cooldown(member.id)
+
+        if current_time < cooldown_end:
+            reason_text = "a recent denial" if reason == "denial" else "cancelling your previous request"
+            return await interaction.response.send_message(
+                f"❌ You are on a cooldown due to {reason_text}. You can apply again <t:{int(cooldown_end)}:R>.",
+                ephemeral=True
+            )
+
+        level_10_role = guild.get_role(LEVEL_10_ROLE_ID)
+        
+        # Check if user has Level 10 role or higher (defaults to True if role ID is missing/invalid)
+        has_required_level = True if not level_10_role else False
+        if level_10_role:
+            for role in member.roles:
+                if role.position >= level_10_role.position:
+                    has_required_level = True
+                    break
+                    
+        if not has_required_level:
+            return await interaction.response.send_message(
+                "❌ You must be level 10 (Stellar Specialist) or higher to apply for NSFW and NSFW+ access.",
+                ephemeral=True
+            )
+
+        await interaction.response.defer(ephemeral=True)
 
         pending_role = guild.get_role(PENDING_VERIFICATION_ROLE_ID)
 
@@ -346,10 +433,14 @@ class VerificationDropdown(Select):
                 "This helps confirm the photo belongs to you and was not taken from somewhere online.\n\n"
                 "We do **NOT** allow ID numbers, addresses, or other sensitive details to be shown for your safety. "
                 "Please edit or cover those details before uploading.\n\n"
-                "If you do not agree to this process, please cancel the application now.\n\n"
                 "-# *(The ID photo process is reviewed manually by staff for safety reasons. We do **not** keep photos on file; they are removed after acceptance or denial.)*"
             ),
-            "4. Please upload your verification images here. These are reviewed by our staff team, not by a bot."
+            "4. Please upload your verification images here. These are reviewed by our staff team, not by a bot.",
+            "5. By applying for this application, you confirm that you understand the content in those channels may be explicit and is intended for **adults only.**",
+            "6. If you are applying for NSFW+ access, you are stating that you understand that the content is more explicit than the standard NSFW channels.",
+            "7. By applying for this application, you agree to follow all server rules and guidelines. Any violation may result in removal of NSFW access by gaining the `On Watchlist` role.",
+            "8. Please note that if you are applying on desktop, and later using an iOS device, that they restrict NSFW content by default, and our server is age-restricted. You will need to use a desktop or Android device to view NSFW content, or activate the option in settings to allow it by going to Settings > Messaging Permissions > Allow access to age-restricted servers on iOS.\n\n",
+            "If you do not agree to these conditions, please cancel the application now. You can reapply later if you change your mind."
         ]
 
         await thread.send("\n".join(questions))
@@ -492,11 +583,17 @@ class Verification(commands.Cog):
                 f"❌ {member.mention} denied for **{APPLICATION_TYPES[application_key]['label']}**"
             )
 
-        member = await guild.fetch_member(member.id)
-        pending_role = guild.get_role(PENDING_VERIFICATION_ROLE_ID)
+            # Apply 48-hour denial cooldown inside the else block
+            set_cooldown(member.id, 48, reason="denial")
 
-        if pending_role and pending_role in member.roles:
-            await member.remove_roles(pending_role)
+        try:
+            member = await guild.fetch_member(member.id)
+            pending_role = guild.get_role(PENDING_VERIFICATION_ROLE_ID)
+
+            if pending_role and pending_role in member.roles:
+                await member.remove_roles(pending_role)
+        except discord.NotFound:
+            pass
 
         transcript_file = await self.create_thread_transcript(thread)
 
