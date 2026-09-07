@@ -353,6 +353,13 @@ class Moderation(commands.Cog):
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
+        if member.bot:
+            return
+
+        # If the channel hasn't changed (e.g., they just muted/unmuted), ignore it
+        if before.channel == after.channel:
+            return
+
         log_channel = self.bot.get_channel(MOD_LOG_CHANNEL_ID)
 
         if not log_channel:
