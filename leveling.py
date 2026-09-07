@@ -503,6 +503,13 @@ class Leveling(commands.Cog):
         await self._update_member_roles(member, 0)
 
     @commands.Cog.listener()
+    async def on_member_remove(self, member):
+        if member.bot: return
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM users WHERE user_id = ?", (member.id,))
+            await db.commit()
+
+    @commands.Cog.listener()
     async def on_message(self, message):
         if message.author.bot or not message.guild: return
         if message.channel.id in self.NO_XP_CHANNELS or message.channel.category_id in self.NO_XP_CATEGORIES: return
@@ -799,10 +806,16 @@ class Leveling(commands.Cog):
             ) as cursor:
                 entries = await cursor.fetchall()
 
-        if not entries:
+        # Filter out users who are no longer in the server
+        filtered_entries = [
+            entry for entry in entries 
+            if ctx.guild.get_member(entry[0]) is not None
+        ]
+
+        if not filtered_entries:
             return await ctx.send("No members found on the leaderboard yet!")
 
-        view = LeaderboardView(self, ctx.author, entries)
+        view = LeaderboardView(self, ctx.author, filtered_entries)
         embed = view.build_embed()
         await ctx.send(embed=embed, view=view)
 
@@ -946,6 +959,26 @@ class Leveling(commands.Cog):
                 
             await db.commit()
         await interaction.followup.send(f"✅ Sync complete! Calibrated {synced_count} members.", ephemeral=True)
+
+    @app_commands.command(name="purge_left_members", description="Removes users from the DB who are no longer in the server (Admin only)")
+    @commands.has_permissions(administrator=True)
+    async def purge_left_members(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute("SELECT user_id FROM users") as cursor:
+                rows = await cursor.fetchall()
+            
+            deleted_count = 0
+            for row in rows:
+                user_id = row[0]
+                # Check if the member is still in the guild
+                if interaction.guild.get_member(user_id) is None:
+                    await db.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+                    deleted_count += 1
+            await db.commit()
+            
+        await interaction.followup.send(f"✅ Cleaned up {deleted_count} former members from the database!", ephemeral=True)
 
     @app_commands.command(name="reset", description="Wipe a user's XP and Level (Admin only)")
     @commands.has_permissions(administrator=True)
