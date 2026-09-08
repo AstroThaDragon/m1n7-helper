@@ -15,6 +15,7 @@ import re
 import aiosqlite
 from datetime import datetime, time, timezone, timedelta
 import pytz
+from database import init_db
 
 load_dotenv()
 
@@ -34,6 +35,7 @@ class Enceladus(commands.Bot):
 
     async def setup_hook(self):
         # 1. Initialize all databases FIRST
+        init_db()
         await init_bump_db()
         await init_fun_db()
         print("🌌 Databases initialized and ready!")
@@ -50,6 +52,10 @@ class Enceladus(commands.Bot):
         await self.load_extension("dm_handler")
         await self.load_extension("sword")
         await self.load_extension("dragonrider")
+        await self.load_extension("economy")
+        await self.load_extension("exploration")
+        await self.load_extension("profile")
+        await self.load_extension("pets")
         print("🌌 All cogs loaded!")
 
         # 3. Register the persistent views (Buttons/Dropdowns)
@@ -657,6 +663,60 @@ async def resetbump(ctx):
         await db.commit()
     await ctx.send("Bump timer cleared! 🔄")
 
+class HelpView(discord.ui.View):
+    def __init__(self, bot_instance, author, pages):
+        super().__init__(timeout=120)
+        self.bot_instance = bot_instance
+        self.author = author
+        self.pages = pages
+        self.current_page = 0
+        self.max_pages = len(pages)
+        self.update_buttons()
+
+    def update_buttons(self):
+        self.first_page.disabled = (self.current_page == 0) # type: ignore
+        self.prev_page.disabled = (self.current_page == 0) # type: ignore
+        self.next_page.disabled = (self.current_page >= self.max_pages - 1) # type: ignore
+        self.last_page.disabled = (self.current_page >= self.max_pages - 1) # type: ignore
+
+    def build_embed(self):
+        embed = self.pages[self.current_page]
+        embed.set_footer(text=f"Enceladus' Station • Page {self.current_page + 1}/{self.max_pages} | Powered by the Astral Plane! 🌌")
+        return embed
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.author.id:
+            return True
+        await interaction.response.send_message("This isn't your protocol command! Use `/help` or `-protocols` to open your own.", ephemeral=True)
+        return False
+
+    @discord.ui.button(emoji="⏮️", style=discord.ButtonStyle.secondary)
+    async def first_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = 0
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(emoji="◀️", style=discord.ButtonStyle.primary)
+    async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page > 0:
+            self.current_page -= 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(emoji="▶️", style=discord.ButtonStyle.primary)
+    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page < self.max_pages - 1:
+            self.current_page += 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary)
+    async def last_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = self.max_pages - 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+
 @bot.hybrid_command(name="help", aliases=["protocols", "directory"], description="Displays the full directory of Enceladus' commands!")
 async def help_command(ctx):
     """The central directory for all of Enceladus' station functions."""
@@ -664,111 +724,122 @@ async def help_command(ctx):
     daily_reset = get_next_midnight_reset()
     fortune_reset = get_next_fortune_reset()
 
-    embed = discord.Embed(
-        title="**🛰️ Enceladus Command Directory**",
-        description="Use `/help` for Slash or `-protocols` for Prefix. All commands work below with `-` or `/`, so use whatever you prefer! 🌌",
-        color=discord.Color.from_rgb(138, 43, 226)
-    )
-
-    embed.add_field(
-        name="__ ⭐ Leveling & Social__",
-        value=(
-            "`/customize <bar_color> [bg_url]` - Personalize your rank card aesthetics!\n"
-            "`/hug <member>` - Give a warm, fuzzy cosmic hug!\n"
-            "`/rank <member>` - View your level, XP, and rank card.\n"
-            "`/slap <member>` - Slap someone with a random object!\n"
-            f"`/set_birthday <month> <day>` - Register your birthday for a special cake icon and ping on your special day! Daily checks at <t:{daily_reset}:t>.\n"
-            "`/upcoming_birthdays` - See upcoming server birthdays!\n"
-        ),
-        inline=False
-    )
-
-    embed.add_field(
-        name="__ 🎮 Fun & Cosmic Games (1)__",
-        value=(
-            "`/aurarate` - Check you or a member's aura.\n"
-            "`/bing` - View today's Bing wallpaper.\n"
-            "`/blackhole <text>` - Send a message into the void.\n"
-            "`/choose <opt1, opt2>` - Let Enceladus decide choices for you! Multiple choices supported, just separate them with commas!\n"
-            "`/coinflip` - Supernova (heads) or blackhole (tails)!\n"
-            "`/coolrate` - See how cool you or a member is!\n"
-            "`/cringerate` - Find out how cringe you or a member is!\n"
-            f"`/dragonrider` `-ft` `-flytest` - Attempt your daily Dragonrider Test and try to earn your Dragonrider license! Resets daily at <t:{daily_reset}:t>.\n"
-        ),
-        inline=False
-    )
-
-    embed.add_field(
-        name="__ 🎮 Fun & Cosmic Games (2)__",
-        value=(
-            f"`/fortune` - Receive a daily fortune cookie fortune and XP! Resets daily at <t:{fortune_reset}:t>. Keep opening every day for a streak and more XP!\n"
-            "When you open a fortune, you'll see an emoji near your mention to display rarity. Here's what each one means!\n"
-            "🥠 | Common\n"
-            "✨| Uncommon\n"
-            "🌙 | Rare\n"
-            "Legendary and Void have their own special open messages, so you'll know about those!\n\n"
-            "-# ***(Disclaimer: the fortunes can be negative, sad, etc. to keep them realistic. It's just a little game, don't take it too seriously!)***\n\n"
-            "`/freakyrate` - Discover how freaky you or a member is!\n"
-            "`/furryrate` - Determine how furry you or a member is!\n"
-            "`/horoscope <sign>` - Check your daily horoscope.\n"
-            "`/iqrate` - Get a random IQ score for you or a member!\n"
-            "`/iss` - Track the International Space Station's current position.\n"
-            "`/leaderboard` `-levelscores` - View the top 10 members with the highest levels and XP, and scroll also through all members!\n"
-        ),
-        inline=False
-    )
-
-    embed.add_field(
-        name="__ 🎮 Fun & Cosmic Games (3)__",
-        value=(
-            "`/mock <text>` - mAkE yOuR tExT lOoK lIkE tHiS.\n"
-            "`/moon` - Check the current moon phase.\n"
-            "`/nasa` - See NASA's Astronomy Picture of the Day!\n"
-            f"`/pullsword` `-ps` - Attempt to pull the ancient Cosmic Blade from the stone and claim the Bladebearer title! Resets daily at <t:{daily_reset}:t>.\n"
-            "`/relic <question>` - Consult the Astral Relic for answers (Magic 8-Ball)!\n"
-            "`/roll <sides>` - Roll a die! Choose between 2 to 20 sides.\n"
-            "`/spacedata` - Pull real-time data on a random celestial body.\n"
-            "`/weather <city>` - Get the current weather for a city.\n"
-        ),
-        inline=False
-    )
-
-    embed.add_field(
-        name="__ 🎤 Rhythm & Search__",
-        value=(
-            "`/fnfmod <query>` - Search GameBanana for FNF mods.\n"
-            "`/fnfsong <song>` - Find FNF tracks on YouTube.\n"
-        ),
-        inline=False
-    )
-
-    embed.add_field(
-        name="__ 🛠️ Server Tools__",
-        value=(
-            "`-list` - List all available community tags.\n"
-            "`-[tagname]` - View a saved community tag.\n"
-            "`/echo <msg> [chan (optional)]` - Make Enceladus speak!\n"
-            "`-qr <report reason>` - Make a silent quick report to the staff about a member.\n"
-        ),
-        inline=False
-    )
-
-    if ctx.author.guild_permissions.administrator:
-        embed.add_field(
-            name="__ 🛡️ Station Admin (Staff Only)__",
+    pages = [
+        discord.Embed(
+            title="**🛰️ Enceladus Command Directory — Leveling & Social**",
+            description="Use `/help` or `-protocols` for help on available commands. All commands work below with `-` or `/`, so use whatever you prefer! 🌌",
+            color=discord.Color.from_rgb(138, 43, 226)
+        ).add_field(
+            name="__ ⭐ Leveling & Social__",
             value=(
-                "`/reset <member>` - Wipe all leveling progress for a member.\n"
-                "`/setlevel <member> <level>` / `/setxp <member> <xp>` - Manually adjust a user's stats.\n"
-                "`/sync_levels` - Calibrate levels based on roles (ONLY FOR EMERGENCY USE)."
+                "`/customize <bar_color> [bg_url]` - Personalize your rank card aesthetics!\n"
+                "`/hug <member>` - Give a warm, fuzzy cosmic hug!\n"
+                "`/rank <member>` - View your level, XP, and rank card.\n"
+                "`/slap <member>` - Slap someone with a random object!\n"
+                f"`/set_birthday <month> <day>` - Register your birthday for a special cake icon and ping on your special day! Daily checks at <t:{daily_reset}:t>.\n"
+                "`/upcoming_birthdays` - See upcoming server birthdays!\n"
+                "`/leaderboard` `-levelscores` - View top members and scroll through active users!"
+            ),
+            inline=False
+        ),
+        discord.Embed(
+            title="**🛰️ Enceladus Command Directory — Fun & Games (1)**",
+            description="Explore the cosmic playground and space tools! 🪐",
+            color=discord.Color.from_rgb(138, 43, 226)
+        ).add_field(
+            name="__ 🎮 Fun & Cosmic Games (1)__",
+            value=(
+                "`/aurarate` - Check you or a member's aura.\n"
+                "`/bing` - View today's Bing wallpaper.\n"
+                "`/blackhole <text>` - Send a message into the void.\n"
+                "`/choose <opt1, opt2>` - Let Enceladus decide choices for you!\n"
+                "`/coinflip` - Supernova (heads) or blackhole (tails)!\n"
+                "`/coolrate` - See how cool you or a member is!\n"
+                "`/cringerate` - Find out how cringe you or a member is!\n"
+                f"`/dragonrider` `-ft` `-flytest` - Attempt your daily Dragonrider Test and try to earn your license! Resets daily at <t:{daily_reset}:t>.\n"
+            ),
+            inline=False
+        ),
+        discord.Embed(
+            title="**🛰️ Enceladus Command Directory — Fun & Games (2) & Rhythm**",
+            description="Fortunes, music searches, and cosmic tracking! 🎶",
+            color=discord.Color.from_rgb(138, 43, 226)
+        ).add_field(
+            name="__ 🎮 Fun & Cosmic Games (2) & Rhythm__",
+            value=(
+                "`/fnfmod <query>` - Search GameBanana for FNF mods.\n"
+                "`/fnfsong <song>` - Find FNF tracks on YouTube.\n"
+                f"`/fortune` - Receive a daily fortune cookie fortune and XP! Resets daily at <t:{fortune_reset}:t>.\n"
+                "🥠 Common | ✨ Uncommon | 🌙 Rare | (Legendary/Void have custom announcements that are distinctive!)\n"
+                "-# *(Disclaimer: the fortunes can be negative, sad, etc. to keep them realistic. It's just a little game, don't take it too seriously!)*\n\n"
+                "`/freakyrate` - Discover how freaky you or a member is!\n"
+                "`/furryrate` - Determine how furry you or a member is!\n"
+                "`/horoscope <sign>` - Check your daily horoscope.\n"
+                "`/iqrate` - Get a random IQ score for you or a member!\n"
+                "`/iss` - Track the International Space Station's current position.\n"
+            ),
+            inline=False
+        ),
+        discord.Embed(
+            title="**🛰️ Enceladus Command Directory — Fun & Games (3)**",
+            description="More cosmic games and tools! ✨",
+            color=discord.Color.from_rgb(138, 43, 226)
+        ).add_field(
+            name="__ 🎮 Fun & Cosmic Games (3)__",
+            value=(
+                "`/mock <text>` - mAkE yOuR tExT lOoK lIkE tHiS.\n"
+                "`/moon` - Check the current moon phase.\n"
+                "`/nasa` - See NASA's Astronomy Picture of the Day!\n"
+                f"`/pullsword` `-ps` - Attempt to pull the ancient Cosmic Blade and claim the Bladebearer title! Resets daily at <t:{daily_reset}:t>.\n"
+                "`/relic <question>` - Consult the Astral Relic for answers (Magic 8-Ball)!\n"
+                "`/roll <sides>` - Roll a die! Choose between 2 to 20 sides.\n"
+                "`/spacedata` - Pull real-time data on a random celestial body.\n"
+                "`/weather <city>` - Get the current weather for a city.\n"
+            ),
+            inline=False
+        ),
+        discord.Embed(
+            title="**🛰️ Enceladus Command Directory — Server Tools**",
+            description="Community tags and utility commands! 🛠️",
+            color=discord.Color.from_rgb(138, 43, 226)
+        ).add_field(
+            name="__ 🛠️ Server Tools__",
+            value=(
+                "`-list` - List all available community tags to use in chats.\n"
+                "`-[tagname]` - View a saved community tag.\n"
+                "`/echo <msg> [channel (optional)]` - Make Enceladus speak! **Don't use to bypass rules.**\n"
+                "`-qr <report reason>` - Make a silent quick report to staff about a member.\n"
             ),
             inline=False
         )
+    ]
 
-    embed.set_footer(text="Enceladus' Station | Powered by the Astral Plane! 🌌")
+    # Dynamically append Station Admin page if the user is an administrator
+    if ctx.author.guild_permissions.administrator:
+        pages.append(
+            discord.Embed(
+                title="**🛰️ Enceladus Command Directory — Station Admin**",
+                description="Administrative commands for server management. 🛡️",
+                color=discord.Color.from_rgb(138, 43, 226)
+            ).add_field(
+                name="__ 🛡️ Station Admin (Admin Staff Only)__",
+                value=(
+                    "`/reset <member>` - Wipe all leveling progress for a member.\n"
+                    "`/setlevel <member> <level>` / `/setxp <member> <xp>` - Manually adjust a user's stats.\n"
+                    "`/sync_levels` - Calibrate levels based on roles (ONLY FOR EMERGENCY USE! Do not use unless instructed by server owner.).\n"
+                    "`/purge_left_members` - Removes users from the database who left the server."
+                ),
+                inline=False
+            )
+        )
+
+    view = HelpView(bot, ctx.author, pages)
+    embed = view.build_embed()
+    
     if ctx.interaction:
-        await ctx.interaction.response.send_message(embed=embed)
+        await ctx.interaction.response.send_message(embed=embed, view=view)
     else:
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed, view=view)
 
 @bot.event
 async def on_command_error(ctx, error):

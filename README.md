@@ -53,4 +53,4 @@ aiohttp
 Railway
 Status
 
-Actively developed and constantly expanding with new cosmic nonsense. 🚀
+Actively developed and constantly expanding. 🚀

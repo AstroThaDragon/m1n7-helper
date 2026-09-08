@@ -39,63 +39,52 @@ class LeaderboardView(discord.ui.View):
         self.entries = entries
         self.per_page = per_page
         self.current_page = 0
-        self.max_pages = max(1, (len(entries) + per_page - 1) // per_page)
+        self.max_pages = max(1, (len(entries) - 1) // per_page + 1)
         self.update_buttons()
 
     def update_buttons(self):
-        self.first_page.disabled = (self.current_page == 0)
-        self.back_3.disabled = (self.current_page == 0)
-        self.prev_page.disabled = (self.current_page == 0)
+        self.first_page.disabled = (self.current_page == 0) # type: ignore
+        self.back_3.disabled = (self.current_page == 0) # type: ignore
+        self.prev_page.disabled = (self.current_page == 0) # type: ignore
+        self.next_page.disabled = (self.current_page >= self.max_pages - 1) # type: ignore
+        self.forward_3.disabled = (self.current_page >= self.max_pages - 1) # type: ignore
+        self.last_page.disabled = (self.current_page >= self.max_pages - 1) # type: ignore
 
-        self.next_page.disabled = (self.current_page >= self.max_pages - 1)
-        self.forward_3.disabled = (self.current_page >= self.max_pages - 1)
-        self.last_page.disabled = (self.current_page >= self.max_pages - 1)
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.author.id:
-            await interaction.response.send_message("❌ This leaderboard menu isn't for you! You can type your own out though!", ephemeral=True)
-            return False
-        return True
-
-    def build_embed(self) -> discord.Embed:
-        embed = discord.Embed(
-            title="🌌 The Cosmic Lair - XP Leaderboard",
-            color=discord.Color.purple()
-        )
-
+    def build_embed(self):
         start_idx = self.current_page * self.per_page
         end_idx = start_idx + self.per_page
         page_entries = self.entries[start_idx:end_idx]
 
-        if not page_entries:
-            embed.description = "No rankings found."
-            return embed
+        embed = discord.Embed(
+            title="🏆 Server XP Leaderboard",
+            color=discord.Color.from_rgb(114, 0, 225),
+            timestamp=discord.utils.utcnow()
+        )
 
         description_lines = []
-        for rank, (user_id, xp, level) in enumerate(page_entries, start=start_idx + 1):
-            xp_start = self.cog.get_xp_for_level(level)
-            xp_end = self.cog.get_xp_for_level(level + 1)
-            xp_within_level = xp - xp_start
-            needed_for_level = xp_end - xp_start
-
-            if rank == 1:
-                rank_str = "🥇"
-            elif rank == 2:
-                rank_str = "🥈"
-            elif rank == 3:
-                rank_str = "🥉"
+        for i, entry in enumerate(page_entries, start=start_idx + 1):
+            user_id, xp, level = entry
+            
+            if i == 1:
+                medal = "🥇"
+            elif i == 2:
+                medal = "🥈"
+            elif i == 3:
+                medal = "🥉"
             else:
-                rank_str = f"**#{rank}**"
+                medal = f"`#{i}`"
 
-            line = (
-                f"{rank_str} <@{user_id}>\n"
-                f"└ **Level {level}** • Progress: `{xp_within_level:,} / {needed_for_level:,} XP` (Total: `{xp:,} XP`)\n"
-            )
-            description_lines.append(line)
+            description_lines.append(f"{medal} <@{user_id}> • Level **{level}** ({xp:,} XP)")
 
-        embed.description = "\n".join(description_lines)
-        embed.set_footer(text=f"Page {self.current_page + 1} of {self.max_pages} • Total Members: {len(self.entries)}")
+        embed.description = "\n".join(description_lines) if description_lines else "No active members found."
+        embed.set_footer(text=f"Page {self.current_page + 1} / {self.max_pages} • Total Active Members: {len(self.entries)}")
         return embed
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.author.id:
+            return True
+        await interaction.response.send_message("This leaderboard isn't for you! Use `/leaderboard` to view your own.", ephemeral=True)
+        return False
 
     @discord.ui.button(emoji="⏮️", style=discord.ButtonStyle.primary, row=0)
     async def first_page(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -103,7 +92,7 @@ class LeaderboardView(discord.ui.View):
         self.update_buttons()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="-3", emoji="⏪", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(emoji="⏪", style=discord.ButtonStyle.primary, row=0)
     async def back_3(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page = max(0, self.current_page - 3)
         self.update_buttons()
@@ -111,23 +100,25 @@ class LeaderboardView(discord.ui.View):
 
     @discord.ui.button(emoji="◀️", style=discord.ButtonStyle.primary, row=0)
     async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page = max(0, self.current_page - 1)
+        if self.current_page > 0:
+            self.current_page -= 1
         self.update_buttons()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
     @discord.ui.button(emoji="▶️", style=discord.ButtonStyle.primary, row=0)
     async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page = min(self.max_pages - 1, self.current_page + 1)
+        if self.current_page < self.max_pages - 1:
+            self.current_page += 1
         self.update_buttons()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="+3", emoji="⏩", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(emoji="⏩", style=discord.ButtonStyle.primary, row=0)
     async def forward_3(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page = min(self.max_pages - 1, self.current_page + 3)
         self.update_buttons()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.primary, row=1)
     async def last_page(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page = self.max_pages - 1
         self.update_buttons()

@@ -1,6 +1,6 @@
-Terms of Service & Privacy Policy for M1N7 Helper
+Terms of Service & Privacy Policy for Enceladus
 1. Data Collection
-To provide its services, M1N7 Helper accesses the following data through the Discord API:
+To provide its services, Enceladus accesses the following data through the Discord API:
 
 Message Content: The bot reads messages to identify and process the !qr (Quick Report) command.
 
@@ -14,7 +14,7 @@ Automation: Member data is used solely to trigger real-time events, such as the 
 Status: The bot uses internal lists to rotate its own status every 15 minutes.
 
 3. Data Retention
-M1N7 Helper does not store message logs or member data in a long-term database.
+Enceladus does not store message logs or member data in a long-term database.
 
 Data is processed in real-time to execute commands and is not sold, traded, or shared with third parties.
 
