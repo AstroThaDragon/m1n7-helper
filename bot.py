@@ -56,6 +56,7 @@ class Enceladus(commands.Bot):
         await self.load_extension("exploration")
         await self.load_extension("profile")
         await self.load_extension("pets")
+        await self.load_extension("inventory")
         print("🌌 All cogs loaded!")
 
         # 3. Register the persistent views (Buttons/Dropdowns)
@@ -91,6 +92,9 @@ recent_leaves = set()
 
 # --- DATABASE INITIALIZATION ---
 async def init_bump_db():
+    db_folder = os.path.dirname(DB_PATH)  # or replace DB_PATH with your path string
+    if db_folder:
+        os.makedirs(db_folder, exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("CREATE TABLE IF NOT EXISTS bump_timer (id INTEGER PRIMARY KEY, remind_at TEXT, channel_id INTEGER)")
         await db.execute("CREATE TABLE IF NOT EXISTS vaulted_messages (message_id INTEGER PRIMARY KEY)") 

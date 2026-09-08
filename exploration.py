@@ -60,9 +60,15 @@ class Exploration(commands.Cog):
         elif roll < 0.60:
             # Tier 2: Uncommon (Stardust + XP Data Shard)
             found_xp = random.randint(75, 200)
-            cursor.execute("UPDATE users SET xp = xp + ? WHERE user_id = ?", (found_xp, user_id))
             loot_description += f"\n📊 **XP Data Shard:** `+{found_xp} XP`"
             rarity_badge = "uncommon"
+
+            # Award XP globally through leveling.py
+            leveling_cog = self.bot.get_cog("Leveling")
+            if leveling_cog:
+                leveled_up, new_level = await leveling_cog.add_xp(ctx.author, found_xp)
+                if leveled_up:
+                    loot_description += f"\n🎉 **Level Up!** Reached **Level {new_level}**!"
 
         elif roll < 0.75:
             # Tier 3: Rare (Space Junk Artifact!)

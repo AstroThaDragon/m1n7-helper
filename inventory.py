@@ -4,15 +4,16 @@ import sqlite3
 
 # Master Item Registry used across inventory, shop, and exploration
 ITEM_REGISTRY = {
+    # Currencies & Consumables
+    "fuel_refill": {"name": "Emergency Fuel Cell (5 Charges)", "emoji": "⚡", "type": "Consumable", "desc": "Instantly refills your starship mining laser back to 5/5 charges."},
+    "pet_snack": {"name": "Cosmic Bio-Feed", "emoji": "🧬", "type": "Consumable", "desc": "Nutrient pack for your station pet."},
+    "arcade_token": {"name": "Arcade Token", "emoji": "🪙", "type": "Currency", "desc": "Shiny token for future station mini-games."},
+
     # Space Junk
     "space_pizza": {"name": "Dehydrated Space Pizza", "emoji": "🍕", "type": "Space Junk", "desc": "Slightly freezer-burned."},
     "floppy_disk": {"name": "Ancient Alien Floppy Disk", "emoji": "💾", "type": "Space Junk", "desc": "Contains mysterious code. Highly ancient tbh."},
     "meteorite": {"name": "Suspiciously Warm Meteorite Chunk", "emoji": "🪨", "type": "Space Junk", "desc": "Emits a faint ambient heat."},
     "rubber_duck": {"name": "Rubber Duck in a Micro-Spacesuit", "emoji": "🐤", "type": "Space Junk", "desc": "Ready for zero-gravity bath time."},
-    
-    # Currencies & Consumables
-    "arcade_token": {"name": "Arcade Token", "emoji": "🪙", "type": "Currency", "desc": "Shiny token for future station mini-games."},
-    "pet_snack": {"name": "Cosmic Bio-Feed", "emoji": "🧬", "type": "Consumable", "desc": "Nutrient pack for your station pet."},
     
     # Background Vouchers
     "neon_grid": {"name": "Background Voucher: Neon Grid", "emoji": "🌆", "type": "Voucher", "desc": "Unlocks the Cyberpunk Neon Grid profile card."},
@@ -39,7 +40,7 @@ class Inventory(commands.Cog):
             return await ctx.send("📦 **Your storage locker is completely empty!** Head out and deploy your mining laser with `/mine` or check the `/shop`.")
 
         embed = discord.Embed(
-            title=f"📦 {ctx.author.display}'s Storage Locker",
+            title=f"📦 {ctx.author.display_name}'s Storage Locker",
             description="Here is a manifest of all rare artifacts, tokens, and background vouchers you've secured:",
             color=discord.Color.from_rgb(0, 229, 255)
         )
